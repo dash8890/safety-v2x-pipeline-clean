@@ -75,7 +75,16 @@ for v=ids'
     s.current(v)=item;
 end
 
-s.next_tick_s=round(nowS+s.tick_s,10);
+% The overlay is event driven.  Polling every PHY TTI made a 200 s run
+% perform 400,000 unnecessary full-fleet scans.  The only autonomous
+% overlay events are the next task release and the next CPU completion;
+% packet-buffer handoff is triggered directly by a completed transmission.
+nextRelease=inf;
+if s.release_cursor<=numel(s.tasks)
+    nextRelease=s.tasks(s.release_cursor).release_ms/1000;
+end
+nextCpu=min(s.cpu_finish_s);
+s.next_tick_s=round(min(nextRelease,nextCpu),10);
 stationManagement.spv2x=s;
 end
 

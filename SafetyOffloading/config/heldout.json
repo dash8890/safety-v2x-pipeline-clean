@@ -33,6 +33,7 @@
   "safety": {
     "packet_bytes": 300,
     "generation_interval_ms": 100,
+    "receiver_sample_fraction": 0.005,
     "deadline_ms": 100,
     "receiver_range_m": 300,
     "distance_bins_m": [0, 50, 100, 150, 200, 300]
@@ -58,6 +59,7 @@
     "risk_ood_cbr": 0.9,
     "risk_margin": 0.002
   },
+  "logging": {"radio_events": false},
   "experiment": {
     "duration_s": 200,
     "warmup_s": 20,

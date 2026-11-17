@@ -19,6 +19,11 @@ s.world = string(appParams.safetyOffloadingWorld);
 s.density = simParams.rho;
 s.dqn = [];
 s.risk_model = [];
+s.log_radio_events = ~isfield(cfg,'logging') || ~isfield(cfg.logging,'radio_events') || cfg.logging.radio_events;
+s.receiver_sample_fraction = 1;
+if isfield(cfg.safety,'receiver_sample_fraction')
+    s.receiver_sample_fraction = cfg.safety.receiver_sample_fraction;
+end
 if s.policy=="dqn"
     safetyRoot=fileparts(fileparts(mfilename('fullpath')));
     modelPath=string(cfg.control.dqn_model_path);
@@ -34,11 +39,11 @@ if s.policy=="risk_heuristic"
     s.risk_model=jsondecode(fileread(modelPath));
 end
 s.next_tick_s = 0;
-s.tick_s = phyParams.TTI;
 s.packet_counter = 0;
 s.evaluation_range_m = min(cfg.safety.receiver_range_m,max(phyParams.Raw));
 s.safety_seq = zeros(maxID,1);
 s.pending_tx = cell(maxID,1);
+s.meta_queue = cell(maxID,1);
 s.cpu_queue = cell(maxID,1);
 s.cpu_active = zeros(maxID,1);
 s.cpu_finish_s = inf(maxID,1);
@@ -80,6 +85,10 @@ for r = 1:numel(releaseMs)
         s.tasks(k)=t;
     end
 end
+s.safety_row_start=zeros(ceil(simParams.simulationTime/(cfg.safety.generation_interval_ms/1000))*numel(ids) + ...
+    nTasks*(ceil(cfg.compute.input_bytes/cfg.radio.max_transport_block_bytes)+ ...
+    ceil(cfg.compute.output_bytes/cfg.radio.max_transport_block_bytes)) + 16,1,'uint32');
+s.safety_row_count=zeros(size(s.safety_row_start),'uint16');
 s.release_cursor = 1;
 s.decision_counter = 0;
 s.scenario_id = simParams.seed;

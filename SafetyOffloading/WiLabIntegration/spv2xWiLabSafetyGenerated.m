@@ -9,16 +9,38 @@ if isfield(positionManagement,'distanceReal')
 else
     rx=[];
 end
-for i=1:numel(rx)
-    range=positionManagement.distanceReal(tx,rx(i));
-    bin=find(range<=cfg.safety.distance_bins_m,1)-1; if isempty(bin), bin=numel(cfg.safety.distance_bins_m)-1; end
-    s.safety_rows(end+1,:)=[tx seq tx rx(i) nowMs nowMs+cfg.safety.deadline_ms NaN 0 ...
-        cfg.safety.packet_bytes range bin packetId];
+if s.receiver_sample_fraction<1 && ~isempty(rx)
+    % Vectorized deterministic sampling, identical in every paired world.
+    key=mod(double(tx)*73856093 + double(seq)*19349663 + ...
+        double(rx)*83492791 + double(s.scenario_id)*2654435761,2^32)/2^32;
+    keep=key<=s.receiver_sample_fraction;
+    rx=rx(keep);
 end
-if stationManagement.pckBuffer(tx)==0 && ~s.current(tx).valid
-    m=s.empty_meta; m.valid=true; m.packet_id=packetId; m.kind="safety"; m.src=tx;
-    m.created_ms=nowMs; m.deadline_ms=nowMs+cfg.safety.deadline_ms; m.seq=seq;
-    m.flow_id=tx; m.bytes=appParams.beaconSizeBytes; s.current(tx)=m;
+if ~isempty(rx)
+    ranges=positionManagement.distanceReal(tx,rx(:));
+    bins=zeros(numel(rx),1);
+    for i=1:numel(rx)
+        bin=find(ranges(i)<=cfg.safety.distance_bins_m,1)-1;
+        if isempty(bin), bin=numel(cfg.safety.distance_bins_m)-1; end
+        bins(i)=bin;
+    end
+    first=size(s.safety_rows,1)+1;
+    block=[repmat([tx seq tx],numel(rx),1),rx(:), ...
+        repmat([nowMs nowMs+cfg.safety.deadline_ms NaN 0 cfg.safety.packet_bytes],numel(rx),1), ...
+        ranges(:),bins,repmat(packetId,numel(rx),1)];
+    s.safety_rows=[s.safety_rows;block];
+    s.safety_row_start(packetId)=first;
+    s.safety_row_count(packetId)=numel(rx);
+end
+m=s.empty_meta; m.valid=true; m.packet_id=packetId; m.kind="safety"; m.src=tx;
+m.created_ms=nowMs; m.deadline_ms=nowMs+cfg.safety.deadline_ms; m.seq=seq;
+m.flow_id=tx; m.bytes=appParams.beaconSizeBytes;
+if ~s.current(tx).valid
+    s.current(tx)=m;
+else
+    % WiLab can buffer more than one safety packet.  Keep packet metadata in
+    % the same FIFO order instead of silently losing the tag for queued data.
+    s.meta_queue{tx}=[s.meta_queue{tx};m];
 end
 stationManagement.spv2x=s;
 end

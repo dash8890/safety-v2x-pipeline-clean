@@ -39,6 +39,7 @@ visitedEvent = false(simValues.maxID, 1);
 outputValues.calculationPRR = 0; % 계산을 위한 초기 정의
 outputValues.receptionTot = 0; % 계산을 위한 초기 정의
 outputValues.totalPacketTot = 0; %(28~41)
+legacyDrlMetricsEnabled = false;
 
 while timeManagement.timeNow < simParams.simulationTime
 
@@ -200,6 +201,7 @@ while timeManagement.timeNow < simParams.simulationTime
                 cbrUpdateCV2X(timeManagement,vehiclesToConsider,stationManagement,positionManagement,sinrManagement,appParams,simParams,phyParams,outParams,outputValues);
        
 
+            if legacyDrlMetricsEnabled
             % 안재욱 모든 vehiclesToConsider에 대한 CBR 값을 tempCBRvalues에 저장(192~209) 
             for idx = 1:length(vehiclesToConsider) % 현재 고려 중인 차량 개수 만큼
                 vehicleID = vehiclesToConsider(idx); % 해당 차량에 CBR, CR 할당
@@ -217,6 +219,7 @@ while timeManagement.timeNow < simParams.simulationTime
                 culmulativeCRvalues = [culmulativeCRvalues, tempCRvalues];
                 tempCRvalues = zeros(simValues.maxID, 1);
                 visitedEvents = false(simValues.maxID, 1);
+            end
             end
         end
 
@@ -273,6 +276,12 @@ while timeManagement.timeNow < simParams.simulationTime
             [phyParams,simValues,outputValues,sinrManagement,stationManagement,timeManagement] = ...
                 mainCV2XtransmissionEnds(appParams,simParams,phyParams,outParams,simValues,outputValues,timeManagement,positionManagement,sinrManagement,stationManagement);
 
+            if isfield(stationManagement,'spv2x') && stationManagement.spv2x.enabled
+                stationManagement = spv2xWiLabAfterTransmission(stationManagement, ...
+                    timeManagement,stationManagement.transmittingIDsCV2X,phyParams);
+            end
+
+            if legacyDrlMetricsEnabled
             firstIteration = true; % 안재욱(265~287)
             for idx = 1:length(stationManagement.transmittingIDsCV2X) % 현재 전송 중인 차량들 개수 만큼
                 % 처음 반복할 때만 receptionTot 및 totalPacketTot 업데이트 (만일 2개 차량에 대해서 성공한 비콧과 오류가 뜬 비콘을 계산 했을 때, 269, 270에 2번 계산되는 걸 방지)
@@ -295,6 +304,7 @@ while timeManagement.timeNow < simParams.simulationTime
                 culmulativePRR = [culmulativePRR, tempPRR];  % 임시 배열을 열로 추가
                 tempPRR = zeros(simValues.maxID, 1);
                 visitedEvent = false(simValues.maxID, 1);
+            end
             end
       
             % DEBUG TX-RX
