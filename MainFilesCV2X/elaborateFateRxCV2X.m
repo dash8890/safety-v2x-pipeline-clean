@@ -3,8 +3,6 @@ function [resultingList,stationManagement,sinrManagement] = elaborateFateRxCV2X(
 % transmissions
 % [ID TX, ID RX, BRid, distance]
 
-distance = positionManagement.distanceReal(stationManagement.vehicleState(stationManagement.activeIDs)==100,stationManagement.vehicleState(stationManagement.activeIDs)==100);
-
 Ntx = length(IDvehicleTXLTE);              % Number of tx vehicles
 %resultingList = zeros(Ntx*length(neighborsID(1,:)),5);        % Initialize error matrix
 resultingList = zeros(0,5);        % Initialize error matrix
@@ -53,7 +51,7 @@ for i = 1:Ntx
             resultingList(indexRaw,1) = IDvehicleTXLTE(i);
             resultingList(indexRaw,2) = IDvehicleRX;
             resultingList(indexRaw,3) = stationManagement.BRid(IDvehicleTXLTE(i),stationManagement.pckTxOccurring(IDvehicleTXLTE(i)));
-            resultingList(indexRaw,4) = distance(indexVehicleTX(i),stationManagement.activeIDsCV2X==IDvehicleRX);
+            resultingList(indexRaw,4) = positionManagement.distanceReal(IDvehicleTXLTE(i),IDvehicleRX);
             resultingList(indexRaw,5) = 1; % COLUMN 5=1 IS "CORRECT"
             % Mark that this packet has been received
             stationManagement.pckReceived(IDvehicleRX,IDvehicleTXLTE(i))=1;
@@ -67,7 +65,7 @@ for i = 1:Ntx
             resultingList(indexRaw,1) = IDvehicleTXLTE(i);
             resultingList(indexRaw,2) = IDvehicleRX;
             resultingList(indexRaw,3) = stationManagement.BRid(IDvehicleTXLTE(i),stationManagement.pckTxOccurring(IDvehicleTXLTE(i)));
-            resultingList(indexRaw,4) = distance(indexVehicleTX(i),stationManagement.activeIDsCV2X==IDvehicleRX);
+            resultingList(indexRaw,4) = positionManagement.distanceReal(IDvehicleTXLTE(i),IDvehicleRX);
             resultingList(indexRaw,5) = 0; % COLUMN 5=0 IS "ERROR"
         elseif ~isinf(phyParams.Ksi) || isempty(find(IDvehicleTXLTE == IDvehicleRX, 1))
             % ERROR IN ATTEMPT (NOT THE LAST ONE) AND THE RECEIVER IS NOT

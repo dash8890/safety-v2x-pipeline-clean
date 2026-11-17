@@ -19,10 +19,10 @@ end
 % If there is at least one C-V2X station transmitting, I have to initialize
 % SINR values
 if ~isempty(stationManagement.transmittingIDsCV2X)     
-    RXpower_MHz_ofLTE = sinrManagement.P_RX_MHz(stationManagement.indexInActiveIDs_ofLTEnodes,stationManagement.indexInActiveIDs_ofLTEnodes);
-
     % Number of vehicles transmitting in the current subframe
     Ntx = length(stationManagement.transmittingIDsCV2X);
+    allGlobal = stationManagement.indexInActiveIDs_ofLTEnodes;
+    txGlobal = allGlobal(stationManagement.indexInActiveIDsOnlyLTE_OfTxLTE);
 
     % Initialization of SINRmanagement
     sinrManagement.neighPowerUsefulCV2X = zeros(Ntx,length(stationManagement.activeIDsCV2X)-1);
@@ -59,7 +59,8 @@ if ~isempty(stationManagement.transmittingIDsCV2X)
 
             % ID rx vehicle
             IDrx = stationManagement.neighborsIDLTE(stationManagement.indexInActiveIDsOnlyLTE_OfTxLTE(i_tx),j_neigh);
-            RxPowerIDrx = RXpower_MHz_ofLTE(stationManagement.activeIDsCV2X==IDrx,stationManagement.indexInActiveIDsOnlyLTE_OfTxLTE);
+            rxLocal=find(stationManagement.activeIDsCV2X==IDrx,1);
+            RxPowerIDrx=sinrManagement.P_RX_MHz(allGlobal(rxLocal),txGlobal);
 
             % Find BRT in use by rx vehicle j
             %BRTrx = BRidT(IDrx);
@@ -68,27 +69,12 @@ if ~isempty(stationManagement.transmittingIDsCV2X)
             C = RxPowerIDrx(i_tx);
             %C = RXpower_MHz_ofLTE(stationManagement.activeIDsCV2X==IDrx,stationManagement.indexInActiveIDsOnlyLTE_OfTxLTE(i_tx));
 
-            % Initialize interfering power sums vector
             Isums = zeros(appParams.NbeaconsF,1);
-
-            % Interference computation
-            % Find other vehicles transmitting in the same subframe of
-            % tx vehicle i
-            if Ntx > 1 % otherwise there is only one transmitter - no interference
-                for k = 1:Ntx %length(stationManagement.indexInActiveIDsOnlyLTE_OfTxLTE)
-                    % If interferer is different from tx vehicle i and
-                    % different from receiving vehicle j
+            if Ntx > 1
+                for k = 1:Ntx
                     if k~=i_tx && stationManagement.transmittingIDsCV2X(k)~=IDrx
-                        % Find which BRF is used by the interferer k
-                        %BRFInt = BRidF(stationManagement.transmittingIDsCV2X(k));
                         BRFInt = stationManagement.transmittingFusedLTE(k);
-                        
-                        % Find power from interfering vehicle k received
-                        % by receiving vehicle j         
-                        I = RxPowerIDrx(k);
-                        %I = RXpower_MHz_ofLTE(stationManagement.activeIDsCV2X==IDrx,stationManagement.indexInActiveIDsOnlyLTE_OfTxLTE(k));
-                        % Sum interference in that BRF
-                        Isums(BRFInt,1) = Isums(BRFInt,1) + I;% THIS LINE
+                        Isums(BRFInt,1) = Isums(BRFInt,1) + RxPowerIDrx(k);
                     end
                 end
             end
