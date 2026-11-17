@@ -41,3 +41,15 @@ python SafetyOffloading/python/train_risk_estimator.py `
 ```
 
 See `SafetyOffloading/README.md` for details and limitations.
+
+Collect and train the native DQN action space with:
+
+```matlab
+[~,trajectories] = runWiLabPairedExternality( ...
+    "config/training_data.json",0.6,[1 2 3],"dqn_explore");
+```
+
+```powershell
+python SafetyOffloading/python/train_dqn.py <trajectory.csv> `
+  --output SafetyOffloading/models/dqn_policy_v1.json
+```

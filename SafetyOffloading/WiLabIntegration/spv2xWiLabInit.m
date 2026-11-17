@@ -16,6 +16,15 @@ s.enabled = true;
 s.cfg = cfg;
 s.policy = string(appParams.safetyOffloadingPolicy);
 s.world = string(appParams.safetyOffloadingWorld);
+s.density = simParams.rho;
+s.dqn = [];
+if s.policy=="dqn"
+    safetyRoot=fileparts(fileparts(mfilename('fullpath')));
+    modelPath=string(cfg.control.dqn_model_path);
+    if ~isfile(modelPath), modelPath=fullfile(safetyRoot,modelPath); end
+    assert(isfile(modelPath),"DQN:MissingModel","DQN model not found: %s",modelPath);
+    s.dqn=jsondecode(fileread(modelPath));
+end
 s.next_tick_s = 0;
 s.tick_s = phyParams.TTI;
 s.packet_counter = 0;
@@ -39,7 +48,7 @@ s.current = repmat(emptyMeta,maxID,1);
 s.empty_meta = emptyMeta;
 s.safety_rows = zeros(0,12);
 s.radio_rows = cell(0,13);
-s.decision_rows = cell(0,19);
+s.decision_rows = cell(0,20);
 s.output_folder = string(outParams.outputFolder);
 
 originCount = max(1,round(numel(ids)*cfg.compute.origin_fraction));

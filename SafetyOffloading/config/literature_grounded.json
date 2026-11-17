@@ -51,6 +51,7 @@
     "queue_capacity": 32
   },
   "control": {
+    "dqn_model_path": "models/dqn_policy_v1.json",
     "cbr_threshold": 0.65,
     "risk_harm_limit": 0.01,
     "risk_ood_cbr": 0.9,

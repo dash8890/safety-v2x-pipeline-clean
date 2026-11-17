@@ -23,16 +23,18 @@ end
 while s.release_cursor<=numel(s.tasks) && s.tasks(s.release_cursor).release_ms<=nowMs+1e-8
     tid=s.release_cursor; origin=s.tasks(tid).origin;
     candidates=helperCandidates(origin,ids,positionManagement,cfg.compute.helper_range_m,cfg.compute.max_helpers);
-    [action,helper,risk,cbr]=chooseOverlayAction(s,origin,candidates,stationManagement);
+    [action,helper,risk,cbr]=chooseOverlayAction(s,origin,candidates,stationManagement,positionManagement);
     helperDistance=NaN; helperQueueLength=0;
     if helper>0
         helperDistance=positionManagement.distanceReal(origin,helper);
         helperQueueLength=numel(s.cpu_queue{helper})+(s.cpu_active(helper)>0);
     end
     originQueueLength=numel(s.cpu_queue{origin})+(s.cpu_active(origin)>0);
+    helperRank=0;
+    if helper>0, helperRank=find(candidates==helper,1); end
     s.decision_counter=s.decision_counter+1; s.tasks(tid).decision_id=s.decision_counter;
     s.tasks(tid).action=action; s.tasks(tid).helper=helper;
-    s.decision_rows(end+1,:)={simParams.seed,s.decision_counter,nowMs,origin,tid,char(action),helper, ...
+    s.decision_rows(end+1,:)={simParams.seed,s.decision_counter,nowMs,origin,tid,char(action),helper,helperRank, ...
         risk,cbr,numel(candidates),helperDistance,originQueueLength,helperQueueLength, ...
         cfg.compute.input_bytes,cfg.compute.output_bytes,cfg.compute.cycles_per_task, ...
         cfg.compute.deadline_ms,char(s.policy),char(s.world)};
@@ -85,7 +87,7 @@ if isempty(valid), candidates=[]; return; end
 candidates=valid(1:min(maxHelpers,numel(valid)))';
 end
 
-function [action,helper,risk,cbr]=chooseOverlayAction(s,origin,candidates,stationManagement)
+function [action,helper,risk,cbr]=chooseOverlayAction(s,origin,candidates,stationManagement,positionManagement)
 cfg=s.cfg; helper=0; cbr=0;
 if isfield(stationManagement,'cbrCV2Xvalues')
     values=stationManagement.cbrCV2Xvalues(origin,:); values=values(values>=0);
@@ -95,11 +97,41 @@ risk=min(1,0.002+0.015*cbr+0.003*(cfg.compute.input_bytes/cfg.radio.max_transpor
 if s.world=="baseline" || s.policy=="no_offload" || isempty(candidates)
     action="local"; return
 end
-helper=candidates(1);
 switch s.policy
+    case "dqn"
+        originQueue=numel(s.cpu_queue{origin})+(s.cpu_active(origin)>0);
+        helperDistance=0; helperQueue=0;
+        if ~isempty(candidates)
+            helperDistance=positionManagement.distanceReal(origin,candidates(1));
+            helperQueue=numel(s.cpu_queue{candidates(1)})+(s.cpu_active(candidates(1))>0);
+        end
+        observation=[cbr,s.density,numel(candidates),helperDistance,originQueue,helperQueue, ...
+            cfg.compute.input_bytes,cfg.compute.output_bytes,cfg.compute.cycles_per_task,cfg.compute.deadline_ms];
+        actionIndex=scoreDqn(s.dqn,observation,numel(candidates));
+        if actionIndex==0
+            action="reject";
+        elseif actionIndex==1
+            action="local";
+        else
+            action="offload"; helper=candidates(actionIndex-1);
+        end
+    case "dqn_explore"
+        % Collect valid action-space experience without bypassing WiLab MAC.
+        % 1=reject, 2=local, 3..N=ranked helper choices.
+        u=stableUniform(s.scenario_id,"dqn-explore",s.decision_counter+1,origin);
+        actionIndex=min(2+numel(candidates),floor(u*(2+numel(candidates)))+1);
+        if actionIndex==1
+            action="reject";
+        elseif actionIndex==2
+            action="local";
+        else
+            action="offload"; helper=candidates(actionIndex-2);
+        end
     case "cbr_threshold"
+        helper=candidates(1);
         if cbr<=cfg.control.cbr_threshold, action="offload"; else, action="local"; end
     case "risk_heuristic"
+        helper=candidates(1);
         if cbr>=cfg.control.risk_ood_cbr
             action="reject";
         elseif risk+cfg.control.risk_margin<=cfg.control.risk_harm_limit
@@ -108,8 +140,17 @@ switch s.policy
             action="local";
         end
     otherwise
+        helper=candidates(1);
         action="offload";
 end
+end
+
+function actionIndex=scoreDqn(model,observation,nCandidates)
+means=double(model.means(:))'; scales=double(model.scales(:))';
+x=((double(observation)-means)./scales)';
+hidden=max(0,double(model.hidden_weights)*x+double(model.hidden_bias(:)));
+q=double(model.output_weights)*hidden+double(model.output_bias(:));
+nValid=min(numel(q),2+nCandidates); [~,index]=max(q(1:nValid)); actionIndex=index-1;
 end
 
 function [s,items]=makeFragments(s,tid,src,dst,bytes,stage,createdMs)
