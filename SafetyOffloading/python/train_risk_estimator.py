@@ -33,7 +33,7 @@ def load(path: Path) -> list[dict[str, str]]:
         rows = list(csv.DictReader(handle))
     if not rows:
         raise ValueError("risk dataset is empty")
-    missing = set(FEATURES + ["seed", "any_harm"]) - set(rows[0])
+    missing = set(FEATURES + ["seed", "harmful_flips", "window_exposures"]) - set(rows[0])
     if missing:
         raise ValueError(f"missing columns: {sorted(missing)}")
     return rows
@@ -68,21 +68,23 @@ def transform(rows, means=None, scales=None):
             variance = sum((x[j] - mean) ** 2 for x in raw) / max(1, len(raw) - 1)
             scales.append(max(math.sqrt(variance), 1e-12))
     x = [[1.0] + [(v - means[j]) / scales[j] for j, v in enumerate(row)] for row in raw]
-    y = [int(number(r, "any_harm") > 0) for r in rows]
-    return x, y, means, scales
+    sample_weights = [max(0, int(number(r, "window_exposures"))) for r in rows]
+    y = [number(r, "harmful_flips") / w if w else 0.0 for r, w in zip(rows, sample_weights)]
+    return x, y, sample_weights, means, scales
 
 
-def fit(x, y, steps: int, rate: float, l2: float):
+def fit(x, y, sample_weights, steps: int, rate: float, l2: float):
     weights = [0.0] * len(x[0])
+    total_weight = max(1, sum(sample_weights))
     for step in range(steps):
         gradient = [0.0] * len(weights)
-        for row, target in zip(x, y):
+        for row, target, sample_weight in zip(x, y, sample_weights):
             error = sigmoid(sum(a * b for a, b in zip(weights, row))) - target
             for j, value in enumerate(row):
-                gradient[j] += error * value
+                gradient[j] += sample_weight * error * value
         for j in range(len(weights)):
             penalty = 0.0 if j == 0 else l2 * weights[j]
-            weights[j] -= rate / math.sqrt(1.0 + step / 100.0) * (gradient[j] / len(x) + penalty)
+            weights[j] -= rate / math.sqrt(1.0 + step / 100.0) * (gradient[j] / total_weight + penalty)
     return weights
 
 
@@ -90,10 +92,14 @@ def predict(weights, x):
     return [sigmoid(sum(a * b for a, b in zip(weights, row))) for row in x]
 
 
-def metrics(y, p):
+def metrics(y, p, sample_weights):
     eps = 1e-12
-    loss = -sum(t * math.log(max(q, eps)) + (1 - t) * math.log(max(1 - q, eps)) for t, q in zip(y, p)) / len(y)
-    return {"rows": len(y), "event_rate": sum(y) / len(y), "brier": sum((t-q)**2 for t, q in zip(y,p))/len(y), "log_loss": loss}
+    total = max(1, sum(sample_weights))
+    loss = -sum(w*(t*math.log(max(q,eps))+(1-t)*math.log(max(1-q,eps))) for t,q,w in zip(y,p,sample_weights))/total
+    return {"rows": len(y), "exposures": total,
+            "harm_rate": sum(w*t for t,w in zip(y,sample_weights))/total,
+            "brier": sum(w*(t-q)**2 for t,q,w in zip(y,p,sample_weights))/total,
+            "log_loss": loss}
 
 
 def wilson_upper(successes: int, total: int, z: float = 1.6448536269514722) -> float:
@@ -106,17 +112,22 @@ def wilson_upper(successes: int, total: int, z: float = 1.6448536269514722) -> f
     return min(1.0, (center + radius) / denominator)
 
 
-def calibration_bins(y, p, count=5):
+def calibration_bins(rows, p, count=5):
     order = sorted(range(len(p)), key=p.__getitem__)
     bins = []
     for b in range(count):
         ids = order[b*len(order)//count:(b+1)*len(order)//count]
         if not ids:
             continue
-        observed = sum(y[i] for i in ids)
+        observed = sum(int(number(rows[i], "harmful_flips")) for i in ids)
+        exposures = sum(int(number(rows[i], "window_exposures")) for i in ids)
+        predicted = sum(p[i]*int(number(rows[i], "window_exposures")) for i in ids)/max(1,exposures)
+        empirical_upper = max(number(rows[i], "harm_rate") for i in ids)
         bins.append({"p_min": min(p[i] for i in ids), "p_max": max(p[i] for i in ids),
-                     "count": len(ids), "events": observed,
-                     "risk_upper_95": wilson_upper(observed, len(ids))})
+                     "count": len(ids), "predicted_mean": predicted,
+                     "harmful_flips": observed, "exposures": exposures,
+                     "empirical_upper": empirical_upper,
+                     "iid_wilson_diagnostic": wilson_upper(observed, exposures)})
     return bins
 
 
@@ -136,19 +147,21 @@ def main() -> None:
                           "test": len(test), "calibration_seed": calibration_seed,
                           "held_out_test_seed": test_seed}, indent=2))
         return
-    x_train, y_train, means, scales = transform(train)
-    x_cal, y_cal, _, _ = transform(calibration, means, scales)
-    x_test, y_test, _, _ = transform(test, means, scales)
-    weights = fit(x_train, y_train, args.steps, args.learning_rate, args.l2)
+    x_train, y_train, w_train, means, scales = transform(train)
+    x_cal, y_cal, w_cal, _, _ = transform(calibration, means, scales)
+    x_test, y_test, w_test, _, _ = transform(test, means, scales)
+    weights = fit(x_train, y_train, w_train, args.steps, args.learning_rate, args.l2)
     p_train, p_cal, p_test = predict(weights, x_train), predict(weights, x_cal), predict(weights, x_test)
     artifact = {
-        "model": "regularized_logistic_harm_classifier",
-        "target": "any harmful flip within the post-decision safety window",
+        "model": "exposure_weighted_logistic_harm_rate",
+        "target": "harmful-flip probability within the post-decision safety window",
         "features": FEATURES,
         "means": means, "scales": scales, "weights": weights,
         "split": {"calibration_seed": calibration_seed, "held_out_test_seed": test_seed},
-        "metrics": {"train": metrics(y_train, p_train), "calibration": metrics(y_cal, p_cal), "test": metrics(y_test, p_test)},
-        "calibration_bins": calibration_bins(y_cal, p_cal),
+        "calibration_scope": "engineering calibration on one independent scenario seed; not a certified confidence bound",
+        "deployment_upper": "maximum observed harm rate in the matching calibration bin",
+        "metrics": {"train": metrics(y_train,p_train,w_train), "calibration": metrics(y_cal,p_cal,w_cal), "test": metrics(y_test,p_test,w_test)},
+        "calibration_bins": calibration_bins(calibration, p_cal),
         "ood_rule": "reject optional offload outside training feature ranges",
         "feature_ranges": {f: [min(number(r, f) for r in train), max(number(r, f) for r in train)] for f in FEATURES},
     }

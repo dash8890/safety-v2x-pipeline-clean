@@ -229,6 +229,25 @@ for indexSensingV = 1:Nscheduled
         if simParams.resourceReEvaluation == true
             continue    % when resource re-eval is active, if the re-eval is performed on a resource at the end of the T1-T2, there is no resource available -> maintains current transmission
         end
+        % Optional compute traffic must wait when Mode-2 has no permissible
+        % candidate. Put the fragment back in the application queue instead
+        % of aborting the simulator or forcing an invalid reservation.
+        vehicleID=scheduledID(indexSensingV);
+        if isfield(stationManagement,'spv2x') && ...
+                stationManagement.spv2x.current(vehicleID).valid && ...
+                stationManagement.spv2x.current(vehicleID).kind=="compute"
+            item=stationManagement.spv2x.current(vehicleID);
+            stationManagement.spv2x.pending_tx{vehicleID}= ...
+                [item;stationManagement.spv2x.pending_tx{vehicleID}];
+            stationManagement.spv2x.current(vehicleID)=stationManagement.spv2x.empty_meta;
+            stationManagement.pckBuffer(vehicleID)=0;
+            stationManagement.pckNextAttempt(vehicleID)=1;
+            if isfield(stationManagement,'newDataIndicator')
+                stationManagement.newDataIndicator(vehicleID)=false;
+            end
+            timeManagement.timeLastPacket(vehicleID)=timeManagement.timeNow-2*phyParams.TTI;
+            continue
+        end
         error('Mbest must be a positive scalar (it is %d)',MBest);
     end
 
