@@ -1,0 +1,110 @@
+# Literature-grounded starting configuration, 2026-11-17.
+# provenance: [L] = exactly reported by cited paper; [D] = study design,
+# [E] = derived arithmetic; [U] = repository-/implementation-dependent.
+# Source keys are detailed in TITS_Mode2_Literature_Parameter_Register.md.
+project:
+  name: safety_externality_v2v_offloading
+  protocol: paired_no_offload_vs_admitted_offload
+  model_target: 3gpp_release_16_nr_v2x_mode2 # [L] Ali et al. 2021
+  platform: WiLabV2XSim                  # [L] Todisco 2026 uses it; extension required
+  platform_release_or_commit: VERIFY_AT_CHECKOUT # [U] cannot deduce version
+  radio_profile: todisco_vnc2026
+
+radio:
+  allocation: autonomous_mode_2
+  carrier_frequency_ghz: 5.9             # [L] 2026 Yu & Mun; 5.9 GHz ITS
+  bandwidth_mhz: 20                     # [L] Todisco 2026
+  subcarrier_spacing_khz: 30            # [L] Todisco 2026
+  slot_duration_ms: 0.5                 # [L] Todisco 2026
+  subchannels: 5                        # [L] Todisco 2026
+  resource_blocks_per_subchannel: 10    # [L] Todisco 2026
+  tx_power_dbm: 23                      # [L] Todisco 2026
+  antenna_gain_dbi: 3                   # [L] Todisco 2026
+  noise_figure_db: 9                    # [L] Todisco 2026
+  nominal_mcs_index: 12                 # [L] Todisco 2026
+  nominal_mcs_modulation: 16QAM         # [L] Todisco 2026
+  nominal_mcs_code_rate_approx: 0.43    # [L] Todisco 2026
+  nominal_max_transport_block_bytes: 1180 # [L] specific reference allocation, NOT a universal TB limit
+  channel_model: ETSI_TR_103_439_rural_highway # [L] Todisco 2026
+  harq_retransmissions: 0               # [L] Todisco 2026; not 'HARQ unsupported'
+  sps_keep_probability: 0.8             # [L] Todisco 2026
+  resource_reservation_interval_ms: 100 # [L] T_gen=100 for non-congested CPM
+  rri_rule: equals_period_of_periodic_source # [L] Todisco 2026; 500 for congested CPM
+  sensing_window_ms: IMPLEMENTATION_DEFINED_FROM_MODE2 # [U] do not invent a 3GPP window
+  resource_selection_window: IMPLEMENTATION_DEFINED_FROM_MODE2 # [U]
+  priority_preemption_enabled: false     # [D] isolation study; test enabled separately if supported
+  common_radio_pool: true               # [D] defines safety-externality experiment
+  packet_fragmentation_required_for_large_compute_tasks: true # [E] inputs exceed 1180 B
+
+mobility:
+  source: todisco_vnc2026
+  topology: 8km_six_lane_highway         # [L] Todisco 2026
+  road_length_km: 8                     # [L]
+  lane_count: 6                         # [L]
+  densities_vehicles_per_km: [50, 150]  # [L] both directions, follow paper interpretation
+  speeds_kmh_mean_by_density: {50: 110, 150: 70} # [L]
+  speeds_kmh_std_by_density: {50: 11, 150: 7}    # [L]
+  source_vehicle_population: {50: 400, 150: 1200} # [L]
+  urban_scenarios: false                # [D] exclude from first replication
+
+safety_traffic:
+  reference: Ali_et_al_IEEE_Access_2021
+  flow_profiles:
+    - name: periodic_safety_300B
+      packet_bytes: 300                 # [L] Ali 2021, Yu & Mun 2026
+      generation_interval_ms: 100       # [L] Ali 2021, Yu & Mun 2026
+      application_delivery_deadline_ms: 100 # [D] aligned to generation, NOT a published universal safety deadline
+      priority: simulator_standard_priority_mapping # [U]
+      receiver_distance_bins_m: [0, 50, 100, 150, 200, 300] # [D] analysis strata
+  traffic_independent_of_offload: true
+  identical_packet_ids_across_paired_worlds: true
+
+compute:
+  profiles:
+    - name: ITORA_light_perception_subregion
+      source: Dong_et_al_TITS_2025
+      input_bytes: 1500                 # [E] 12 kbits / 8
+      cpu_cycles_per_input_bit: 200      # [L]
+      cycles_per_task: 2400000          # [E] 12000 bits * 200 cycles/bit
+      vehicle_cpu_cycles_per_s_min: 500000000  # [L] 500 Mcycles/s
+      vehicle_cpu_cycles_per_s_max: 2000000000 # [L] 2000 Mcycles/s
+      output_bytes: 300                 # [D] pilot assumed result packet, NOT given by Dong
+      deadline_ms: 100                  # [D] pilot; Dong deadline parameter not a fixed 100 ms
+      arrival_model: externally_defined # [U] no source-derived process specified
+    - name: Liu_2025_heavy_computing_sensitivity
+      source: Liu_et_al_Sensors_2025_25_6914
+      input_mbits_range: [0.5, 11]      # [L] 0.5-11 Mbits, not MBytes
+      complexity_gcycles_per_mbit_range: [1, 4.5] # [L]
+      deadline_s_range: [0.5, 3]        # [L]
+      processor_frequency_ghz_range: [0.5, 1.55] # [L] vehicle CPU bins
+      output_bytes: 300                 # [D] pilot assumed result packet
+      task_attributes_sampling: stratified_uniform_within_reported_intervals # [D] sampling rule not guaranteed by source
+      arrival_model: externally_defined # [U] do not confuse 0.2-s controller step with arrival distribution
+  source_and_destination_both_use_sidelink: true # [D] model assumption not in these infrastructure-assisted papers
+  helper_cpu_scheduler: nonpreemptive_edf # [D]
+  replication_enabled: false           # [D]
+
+control:
+  decision_period_ms: 100               # [D] aligned to baseline safety transmission interval
+  actions: [reject, defer, execute_local, offload_to_eligible_helper]
+  mac_control: submit_packets_only
+  risk_estimator: calibrated_upper_bound # [D] method not fixed
+  out_of_distribution_action: reject_optional_offload
+
+safety_constraints:
+  baseline_pdr_benchmark: 0.90          # [L] Yu & Mun use PDR >= 0.9 as reporting reference, NOT a universal standard
+  absolute_failure_probability_max: 0.10 # [D] derived from chosen 0.90 benchmark; research target
+  harm_probability_max: 0.01           # [D] research target, NOT sourced
+  harm_limit_sensitivity: [0.005, 0.01, 0.02] # [D]
+  confidence_level: 0.95               # [D] statistical convention
+  stratification: [density, safety_flow, receiver_distance_bin]
+  baseline_feasibility_required: true
+
+experiments:
+  simulation_duration_s: 200           # [L] Yu & Mun 2026; not Todisco 2026
+  warmup_s: 20                         # [D] inspect radio steady state; do not claim literature
+  independent_scenario_seeds_per_regime: 50 # [D] starting budget, NOT proof of 1% rare-event constraint
+  train_calibration_test_split_by_scenario: true
+  policies: [no_offload, unrestricted, edf, cbr_threshold, priority_only, risk_heuristic]
+  hold_out_test_until_model_frozen: true
+  report: [prr, pir, cbr, safety_harm, absolute_safety_failure, deadline_valid_compute, radio_bytes, fragment_count]

@@ -1,0 +1,59 @@
+function summary = runWiLabIntegratedExperiment(configPath)
+%RUNWILABINTEGRATEDEXPERIMENT Run the configured paired matrix in WiLab NR.
+arguments
+    configPath (1,1) string = "config/literature_grounded.json"
+end
+root=fileparts(mfilename('fullpath')); wilabRoot=fileparts(root); addpath(genpath(wilabRoot));
+if ~isfile(configPath), configPath=fullfile(root,configPath); end
+cfg=loadConfig(configPath); stamp=string(datetime('now','Format','yyyyMMdd_HHmmss'));
+runRoot=fullfile(root,cfg.experiment.output_root,"wilab_"+cfg.project.profile+"_"+stamp);
+if ~isfolder(runRoot), mkdir(runRoot); end
+copyfile(configPath,fullfile(runRoot,"config.json"));
+cfgFile=fullfile(wilabRoot,"ConfigFiles","mode2_pipeline.cfg");
+if isfield(cfg.radio,'native_wilab_raw_m'), raw=cfg.radio.native_wilab_raw_m;
+else, raw=min(100,cfg.safety.receiver_range_m); end
+
+densities=cfg.mobility.density_vehicles_per_km(:)'; seeds=cfg.experiment.seeds(:)';
+policies=string(cfg.experiment.policies(:)'); rows=cell(0,11); scenario=0;
+for density=densities
+    densityIndex=find(densities==density,1);
+    speed=cfg.mobility.speed_kmh_mean(min(densityIndex,numel(cfg.mobility.speed_kmh_mean)));
+    speedStd=cfg.mobility.speed_kmh_std(min(densityIndex,numel(cfg.mobility.speed_kmh_std)));
+    for seed=seeds
+        scenario=scenario+1; scenarioRoot=fullfile(runRoot,sprintf("scenario_%04d",scenario));
+        common={cfgFile,'Technology','NR-V2X','seed',seed,'simulationTime',cfg.experiment.duration_s, ...
+            'rho',density,'roadLength',cfg.mobility.road_length_m,'vMean',speed,'vStDev',speedStd, ...
+            'BwMHz',cfg.radio.bandwidth_mhz,'SCS_NR',cfg.radio.subcarrier_spacing_khz, ...
+            'MCS_NR',cfg.radio.mcs_index,'sizeSubchannel',cfg.radio.resource_blocks_per_subchannel, ...
+            'beaconSizeBytes',cfg.radio.max_transport_block_bytes, ...
+            'generationInterval',cfg.safety.generation_interval_ms/1000, ...
+            'allocationPeriod',cfg.radio.reservation_interval_ms/1000, ...
+            'probResKeep',cfg.radio.sps_keep_probability,'cv2xNumberOfReplicasMax',1,'Raw',raw, ...
+            'dcc_active',false,'cbrActive',true,'printCBR',false, ...
+            'safetyOffloadingEnabled',true,'safetyOffloadingConfig',configPath};
+        baseOut=fullfile(scenarioRoot,"no_offload");
+        WiLabV2Xsim_final_policy_90(common{:},'outputFolder',baseOut, ...
+            'safetyOffloadingPolicy','no_offload','safetyOffloadingWorld','baseline');
+        B=readtable(fullfile(baseOut,"safety_offloading","safety_packets.csv"), ...
+            'VariableNamingRule','preserve');
+        for policy=policies
+            policyOut=fullfile(scenarioRoot,policy);
+            WiLabV2Xsim_final_policy_90(common{:},'outputFolder',policyOut, ...
+                'safetyOffloadingPolicy',policy,'safetyOffloadingWorld','policy');
+            P=readtable(fullfile(policyOut,"safety_offloading","safety_packets.csv"), ...
+                'VariableNamingRule','preserve');
+            T=readtable(fullfile(policyOut,"safety_offloading","tasks.csv"), ...
+                'VariableNamingRule','preserve');
+            paired=pairOutcomes(B,P); writetable(paired,fullfile(policyOut,"paired_outcomes.csv"));
+            n=height(paired); rows(end+1,:)={scenario,seed,density,char(policy),n, ...
+                mean(paired.harmful_flip),mean(~paired.policy_success),mean(~paired.baseline_success), ...
+                mean(paired.avoided_failure),sum(T.completed_on_time),sum(T.fragment_count)}; %#ok<AGROW>
+        end
+    end
+end
+summary=cell2table(rows,'VariableNames',{'scenario_id','seed','density','policy', ...
+    'safety_opportunities','harm_probability','policy_failure_probability', ...
+    'baseline_failure_probability','avoided_failure_probability','tasks_completed','fragment_count'});
+writetable(summary,fullfile(runRoot,"summary.csv")); save(fullfile(runRoot,"summary.mat"),'summary','cfg');
+fprintf("Integrated WiLab experiment complete: %s\n",runRoot); disp(summary);
+end

@@ -1,0 +1,66 @@
+{
+  "project": {"name": "safety_externality_v2v_offloading", "profile": "training_data_v1"},
+  "radio": {
+    "carrier_frequency_ghz": 5.9,
+    "bandwidth_mhz": 20,
+    "subcarrier_spacing_khz": 30,
+    "slot_duration_ms": 0.5,
+    "subchannels": 5,
+    "resource_blocks_per_subchannel": 10,
+    "tx_power_dbm": 23,
+    "antenna_gain_dbi": 3,
+    "noise_figure_db": 9,
+    "mcs_index": 12,
+    "max_transport_block_bytes": 1180,
+    "sps_keep_probability": 0.8,
+    "reservation_interval_ms": 100,
+    "sensing_window_ms": 100,
+    "selection_window_ms": 20,
+    "candidate_fraction": 0.2,
+    "sensing_threshold_dbm": -126,
+    "priority_preemption_enabled": false,
+    "half_duplex": true,
+    "native_wilab_raw_m": 100
+  },
+  "mobility": {
+    "road_length_m": 1000,
+    "lane_count": 6,
+    "lane_width_m": 3.5,
+    "density_vehicles_per_km": [50, 150],
+    "speed_kmh_mean": [110, 70],
+    "speed_kmh_std": [11, 7]
+  },
+  "safety": {
+    "packet_bytes": 300,
+    "generation_interval_ms": 100,
+    "deadline_ms": 100,
+    "receiver_range_m": 300,
+    "distance_bins_m": [0, 50, 100, 150, 200, 300]
+  },
+  "compute": {
+    "arrival_interval_ms": 500,
+    "origin_fraction": 0.1,
+    "input_bytes": 1500,
+    "output_bytes": 300,
+    "cycles_per_task": 2400000,
+    "deadline_ms": 100,
+    "cpu_cycles_per_s_min": 500000000,
+    "cpu_cycles_per_s_max": 2000000000,
+    "max_helpers": 4,
+    "helper_range_m": 300,
+    "queue_capacity": 32
+  },
+  "control": {
+    "cbr_threshold": 0.65,
+    "risk_harm_limit": 0.01,
+    "risk_ood_cbr": 0.9,
+    "risk_margin": 0.002
+  },
+  "experiment": {
+    "duration_s": 2,
+    "warmup_s": 0,
+    "seeds": [1, 2, 3],
+    "policies": ["unrestricted", "edf", "cbr_threshold", "priority_only", "risk_heuristic"],
+    "output_root": "outputs"
+  }
+}
