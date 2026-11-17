@@ -132,7 +132,13 @@ switch s.policy
         if cbr<=cfg.control.cbr_threshold, action="offload"; else, action="local"; end
     case "risk_heuristic"
         helper=candidates(1);
-        if cbr>=cfg.control.risk_ood_cbr
+        originQueue=numel(s.cpu_queue{origin})+(s.cpu_active(origin)>0);
+        helperDistance=positionManagement.distanceReal(origin,helper);
+        helperQueue=numel(s.cpu_queue{helper})+(s.cpu_active(helper)>0);
+        observation=[cbr,s.density,numel(candidates),helperDistance,originQueue,helperQueue, ...
+            cfg.compute.input_bytes,cfg.compute.output_bytes,cfg.compute.cycles_per_task,cfg.compute.deadline_ms];
+        risk=scoreRisk(s.risk_model,observation);
+        if cbr>=cfg.control.risk_ood_cbr || risk>=1
             action="reject";
         elseif risk+cfg.control.risk_margin<=cfg.control.risk_harm_limit
             action="offload";
@@ -142,6 +148,18 @@ switch s.policy
     otherwise
         helper=candidates(1);
         action="offload";
+end
+end
+
+function upper=scoreRisk(model,observation)
+means=double(model.means(:))'; scales=double(model.scales(:))';
+x=(double(observation)-means)./scales; weights=double(model.weights(:))';
+raw=1/(1+exp(-(weights(1)+sum(weights(2:end).*x)))); upper=1;
+bins=model.calibration_bins;
+for i=1:numel(bins)
+    if raw>=bins(i).p_min && raw<=bins(i).p_max
+        upper=max(raw,bins(i).empirical_upper); return
+    end
 end
 end
 

@@ -18,12 +18,20 @@ s.policy = string(appParams.safetyOffloadingPolicy);
 s.world = string(appParams.safetyOffloadingWorld);
 s.density = simParams.rho;
 s.dqn = [];
+s.risk_model = [];
 if s.policy=="dqn"
     safetyRoot=fileparts(fileparts(mfilename('fullpath')));
     modelPath=string(cfg.control.dqn_model_path);
     if ~isfile(modelPath), modelPath=fullfile(safetyRoot,modelPath); end
     assert(isfile(modelPath),"DQN:MissingModel","DQN model not found: %s",modelPath);
     s.dqn=jsondecode(fileread(modelPath));
+end
+if s.policy=="risk_heuristic"
+    safetyRoot=fileparts(fileparts(mfilename('fullpath')));
+    modelPath=string(cfg.control.risk_model_path);
+    if ~isfile(modelPath), modelPath=fullfile(safetyRoot,modelPath); end
+    assert(isfile(modelPath),"SafetyOffloading:MissingRiskModel","Risk model not found: %s",modelPath);
+    s.risk_model=jsondecode(fileread(modelPath));
 end
 s.next_tick_s = 0;
 s.tick_s = phyParams.TTI;

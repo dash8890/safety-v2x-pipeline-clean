@@ -52,6 +52,7 @@
   },
   "control": {
     "dqn_model_path": "models/dqn_policy_v1.json",
+    "risk_model_path": "models/risk_estimator_v1.json",
     "cbr_threshold": 0.65,
     "risk_harm_limit": 0.01,
     "risk_ood_cbr": 0.9,
@@ -61,7 +62,7 @@
     "duration_s": 200,
     "warmup_s": 20,
     "seeds": [1, 2, 3, 4, 5],
-    "policies": ["unrestricted", "edf", "cbr_threshold", "priority_only", "risk_heuristic"],
+    "policies": ["unrestricted", "edf", "cbr_threshold", "priority_only", "risk_heuristic", "dqn"],
     "output_root": "outputs"
   }
 }

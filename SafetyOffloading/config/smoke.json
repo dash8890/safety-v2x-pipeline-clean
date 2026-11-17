@@ -4,7 +4,7 @@
   "mobility": {"road_length_m": 1000, "lane_count": 6, "lane_width_m": 3.5, "density_vehicles_per_km": [12], "speed_kmh_mean": [70], "speed_kmh_std": [7]},
   "safety": {"packet_bytes": 300, "generation_interval_ms": 100, "deadline_ms": 100, "receiver_range_m": 300, "distance_bins_m": [0, 50, 100, 150, 200, 300]},
   "compute": {"arrival_interval_ms": 200, "origin_fraction": 0.25, "input_bytes": 1500, "output_bytes": 300, "cycles_per_task": 2400000, "deadline_ms": 100, "cpu_cycles_per_s_min": 500000000, "cpu_cycles_per_s_max": 2000000000, "max_helpers": 4, "helper_range_m": 300, "queue_capacity": 32},
-  "control": {"dqn_model_path": "models/dqn_policy_v1.json", "cbr_threshold": 0.65, "risk_harm_limit": 0.01, "risk_ood_cbr": 0.9, "risk_margin": 0.002},
-  "experiment": {"duration_s": 1, "warmup_s": 0, "seeds": [1], "policies": ["unrestricted", "edf", "cbr_threshold", "priority_only", "risk_heuristic"], "output_root": "outputs"}
+  "control": {"dqn_model_path": "models/dqn_policy_v1.json", "risk_model_path": "models/risk_estimator_v1.json", "cbr_threshold": 0.65, "risk_harm_limit": 0.01, "risk_ood_cbr": 0.9, "risk_margin": 0.002},
+  "experiment": {"duration_s": 1, "warmup_s": 0, "seeds": [1], "policies": ["unrestricted", "edf", "cbr_threshold", "priority_only", "risk_heuristic", "dqn"], "output_root": "outputs"}
 }
 
