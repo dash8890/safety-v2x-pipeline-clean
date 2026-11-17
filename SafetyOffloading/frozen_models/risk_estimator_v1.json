@@ -1,0 +1,177 @@
+{
+  "model": "exposure_weighted_logistic_harm_rate",
+  "target": "harmful-flip probability within the post-decision safety window",
+  "features": [
+    "cbr",
+    "density",
+    "candidate_helpers",
+    "helper_distance_m",
+    "origin_queue_length",
+    "helper_queue_length",
+    "input_bytes",
+    "output_bytes",
+    "cycles",
+    "deadline_ms"
+  ],
+  "means": [
+    0.102625,
+    125.0,
+    4.0,
+    8.328553316597944,
+    0.0,
+    0.0,
+    1500.0,
+    300.0,
+    2400000.0,
+    100.0
+  ],
+  "scales": [
+    0.1149469638014832,
+    43.85290096535146,
+    1e-12,
+    6.982953952327815,
+    1e-12,
+    1e-12,
+    1e-12,
+    1e-12,
+    1e-12,
+    1e-12
+  ],
+  "weights": [
+    -2.6039421470674284,
+    -0.3005319730577979,
+    -0.288130044427431,
+    0.0,
+    -0.06633843860822912,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "split": {
+    "calibration_seed": 2,
+    "held_out_test_seed": 3
+  },
+  "calibration_scope": "engineering calibration on one independent scenario seed; not a certified confidence bound",
+  "deployment_upper": "maximum observed harm rate in the matching calibration bin",
+  "metrics": {
+    "train": {
+      "rows": 40,
+      "exposures": 125320,
+      "harm_rate": 0.05956750718161506,
+      "brier": 0.00013562319110522,
+      "log_loss": 0.22325364003637896
+    },
+    "calibration": {
+      "rows": 40,
+      "exposures": 135670,
+      "harm_rate": 0.06913835040908085,
+      "brier": 0.0003730365354538676,
+      "log_loss": 0.25507890738900674
+    },
+    "test": {
+      "rows": 40,
+      "exposures": 135420,
+      "harm_rate": 0.07247821592083888,
+      "brier": 0.00038221694630940286,
+      "log_loss": 0.2636055744139924
+    }
+  },
+  "calibration_bins": [
+    {
+      "p_min": 0.029084077200703547,
+      "p_max": 0.034125614953457416,
+      "count": 8,
+      "predicted_mean": 0.032261932951049344,
+      "harmful_flips": 2104,
+      "exposures": 34784,
+      "empirical_upper": 0.0604875804967801,
+      "iid_wilson_diagnostic": 0.06262439133999549
+    },
+    {
+      "p_min": 0.03433416872639212,
+      "p_max": 0.07355006071414404,
+      "count": 8,
+      "predicted_mean": 0.04295857531983541,
+      "harmful_flips": 2173,
+      "exposures": 34766,
+      "empirical_upper": 0.0766743648960739,
+      "iid_wilson_diagnostic": 0.0646732668814248
+    },
+    {
+      "p_min": 0.07367539095107253,
+      "p_max": 0.07700431983672378,
+      "count": 8,
+      "predicted_mean": 0.07522082912079886,
+      "harmful_flips": 2656,
+      "exposures": 34640,
+      "empirical_upper": 0.0766743648960739,
+      "iid_wilson_diagnostic": 0.07905904423296065
+    },
+    {
+      "p_min": 0.07730214380381172,
+      "p_max": 0.09929582984023007,
+      "count": 8,
+      "predicted_mean": 0.07950325829431441,
+      "harmful_flips": 2074,
+      "exposures": 27072,
+      "empirical_upper": 0.0766743648960739,
+      "iid_wilson_diagnostic": 0.07931194336455476
+    },
+    {
+      "p_min": 0.10092836252140869,
+      "p_max": 0.145433690244465,
+      "count": 8,
+      "predicted_mean": 0.12327816785517565,
+      "harmful_flips": 373,
+      "exposures": 4408,
+      "empirical_upper": 0.0902527075812274,
+      "iid_wilson_diagnostic": 0.09177137151478497
+    }
+  ],
+  "ood_rule": "reject optional offload outside training feature ranges",
+  "feature_ranges": {
+    "cbr": [
+      0.0,
+      0.31
+    ],
+    "density": [
+      50.0,
+      150.0
+    ],
+    "candidate_helpers": [
+      4.0,
+      4.0
+    ],
+    "helper_distance_m": [
+      0.282797664552959,
+      34.5966639364076
+    ],
+    "origin_queue_length": [
+      0.0,
+      0.0
+    ],
+    "helper_queue_length": [
+      0.0,
+      0.0
+    ],
+    "input_bytes": [
+      1500.0,
+      1500.0
+    ],
+    "output_bytes": [
+      300.0,
+      300.0
+    ],
+    "cycles": [
+      2400000.0,
+      2400000.0
+    ],
+    "deadline_ms": [
+      100.0,
+      100.0
+    ]
+  }
+}
