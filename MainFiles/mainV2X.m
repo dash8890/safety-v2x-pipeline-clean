@@ -277,7 +277,7 @@ while timeManagement.timeNow < simParams.simulationTime
                 mainCV2XtransmissionEnds(appParams,simParams,phyParams,outParams,simValues,outputValues,timeManagement,positionManagement,sinrManagement,stationManagement);
 
             if isfield(stationManagement,'spv2x') && stationManagement.spv2x.enabled
-                stationManagement = spv2xWiLabAfterTransmission(stationManagement, ...
+                [stationManagement,timeManagement] = spv2xWiLabAfterTransmission(stationManagement, ...
                     timeManagement,stationManagement.transmittingIDsCV2X,phyParams);
             end
 

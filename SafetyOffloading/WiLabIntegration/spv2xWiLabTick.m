@@ -9,7 +9,8 @@ for v=ids'
     if tid>0 && s.cpu_finish_s(v)<=nowS+1e-10
         s.tasks(tid).cpu_finish_ms=s.cpu_finish_s(v)*1000;
         s.cpu_active(v)=0; s.cpu_finish_s(v)=inf;
-        if s.tasks(tid).action=="local"
+        idealCommunication=isfield(cfg.compute,'ideal_communication') && cfg.compute.ideal_communication;
+        if s.tasks(tid).action=="local" || idealCommunication
             s.tasks(tid).result_delivered_ms=s.tasks(tid).cpu_finish_ms;
             if s.tasks(tid).result_delivered_ms<=s.tasks(tid).deadline_ms, s.tasks(tid).status="completed"; else, s.tasks(tid).status="late_cpu"; end
         else
@@ -20,7 +21,7 @@ for v=ids'
 end
 
 % Release tasks at deterministic application epochs.
-while s.release_cursor<=numel(s.tasks) && s.tasks(s.release_cursor).release_ms<=nowMs+1e-8
+while s.release_cursor<=numel(s.tasks) && s.tasks(s.release_cursor).release_ms<=nowMs+1e-6
     tid=s.release_cursor; origin=s.tasks(tid).origin;
     candidates=helperCandidates(origin,ids,positionManagement,cfg.compute.helper_range_m,cfg.compute.max_helpers);
     [action,helper,risk,cbr]=chooseOverlayAction(s,origin,candidates,stationManagement,positionManagement);
@@ -41,9 +42,17 @@ while s.release_cursor<=numel(s.tasks) && s.tasks(s.release_cursor).release_ms<=
     if action=="local"
         s.tasks(tid).cpu_owner=origin; s.tasks(tid).status="queued_local"; s.cpu_queue{origin}(end+1)=tid;
     elseif action=="offload"
-        [s,items]=makeFragments(s,tid,origin,helper,s.tasks(tid).input_bytes,"input",nowMs);
-        s.tasks(tid).input_fragments=numel(items); s.tasks(tid).cpu_owner=helper;
-        s.tasks(tid).status="input_in_flight"; s.pending_tx{origin}=[s.pending_tx{origin};items];
+        idealCommunication=isfield(cfg.compute,'ideal_communication') && cfg.compute.ideal_communication;
+        s.tasks(tid).cpu_owner=helper;
+        if idealCommunication
+            s.tasks(tid).input_delivered_ms=nowMs;
+            s.tasks(tid).status="queued_remote";
+            s.cpu_queue{helper}(end+1)=tid;
+        else
+            [s,items]=makeFragments(s,tid,origin,helper,s.tasks(tid).input_bytes,"input",nowMs);
+            s.tasks(tid).input_fragments=numel(items);
+            s.tasks(tid).status="input_in_flight"; s.pending_tx{origin}=[s.pending_tx{origin};items];
+        end
     else
         s.tasks(tid).status="rejected";
     end
@@ -66,7 +75,8 @@ end
 
 % Submit one pending fragment per free vehicle. WiLab owns resource choice.
 for v=ids'
-    if isempty(s.pending_tx{v}) || stationManagement.pckBuffer(v)>0 || s.current(v).valid, continue; end
+    if isempty(s.pending_tx{v}), continue; end
+    if stationManagement.pckBuffer(v)>0 || s.current(v).valid, continue; end
     if timeManagement.timeNextPacket(v)<=nowS+phyParams.TTI+1e-10, continue; end
     item=s.pending_tx{v}(1); s.pending_tx{v}(1)=[];
     stationManagement.pckBuffer(v)=1; stationManagement.pckNextAttempt(v)=1;
@@ -84,7 +94,7 @@ if s.release_cursor<=numel(s.tasks)
     nextRelease=s.tasks(s.release_cursor).release_ms/1000;
 end
 nextCpu=min(s.cpu_finish_s);
-s.next_tick_s=round(min(nextRelease,nextCpu),10);
+s.next_tick_s=min(nextRelease,nextCpu);
 stationManagement.spv2x=s;
 end
 
@@ -107,6 +117,34 @@ if s.world=="baseline" || s.policy=="no_offload" || isempty(candidates)
     action="local"; return
 end
 switch s.policy
+    case {"oracle_instant","oracle_actual","safety_oracle"}
+        nowS=s.tasks(s.release_cursor).release_ms/1000;
+        deadlineMs=s.tasks(s.release_cursor).deadline_ms;
+        localFinishMs=forecastCpuFinishMs(s,origin,nowS,cfg.compute.cycles_per_task);
+        helperFinishMs=inf(size(candidates));
+        for ci=1:numel(candidates)
+            helperFinishMs(ci)=forecastCpuFinishMs(s,candidates(ci),nowS,cfg.compute.cycles_per_task);
+        end
+        [bestHelperFinish,bestIndex]=min(helperFinishMs);
+        remoteFinishMs=bestHelperFinish;
+        if s.policy~="oracle_instant"
+            fragments=ceil(cfg.compute.input_bytes/cfg.radio.max_transport_block_bytes)+ ...
+                ceil(cfg.compute.output_bytes/cfg.radio.max_transport_block_bytes);
+            remoteFinishMs=remoteFinishMs+fragments*cfg.radio.selection_window_ms;
+        end
+        safetyFeasible=s.policy~="safety_oracle" || ...
+            risk<=cfg.control.risk_harm_limit;
+        if s.policy=="safety_oracle" && isfield(cfg.compute,'oracle_max_offloads')
+            admitted=sum(arrayfun(@(t)t.action=="offload",s.tasks));
+            safetyFeasible=safetyFeasible && admitted<cfg.compute.oracle_max_offloads;
+        end
+        if localFinishMs<=deadlineMs
+            action="local";
+        elseif remoteFinishMs<=deadlineMs && safetyFeasible
+            action="offload"; helper=candidates(bestIndex);
+        else
+            action="local";
+        end
     case "dqn"
         originQueue=numel(s.cpu_queue{origin})+(s.cpu_active(origin)>0);
         helperDistance=0; helperQueue=0;
@@ -118,7 +156,20 @@ switch s.policy
             cfg.compute.input_bytes,cfg.compute.output_bytes,cfg.compute.cycles_per_task,cfg.compute.deadline_ms];
         actionIndex=scoreDqn(s.dqn,observation,numel(candidates));
         if actionIndex==0
-            action="reject";
+            % Rejection is dominated by local execution whenever the local
+            % queue can still meet this task's deadline.  Keep the learned
+            % action inside the feasible set at deployment.
+            queuedCycles=sum(arrayfun(@(id)s.tasks(id).cycles,s.cpu_queue{origin}));
+            decisionNowS=s.tasks(s.release_cursor).release_ms/1000;
+            if s.cpu_active(origin)>0
+                queuedCycles=queuedCycles+max(0,s.cpu_finish_s(origin)-decisionNowS)*s.cpu_rate(origin);
+            end
+            localFinishMs=decisionNowS*1000+(queuedCycles+cfg.compute.cycles_per_task)/s.cpu_rate(origin)*1000;
+            if localFinishMs<=s.tasks(s.release_cursor).deadline_ms
+                action="local";
+            else
+                action="reject";
+            end
         elseif actionIndex==1
             action="local";
         else
@@ -135,6 +186,12 @@ switch s.policy
             action="local";
         else
             action="offload"; helper=candidates(actionIndex-2);
+        end
+    case "acceptance_split"
+        if isempty(s.cpu_queue{origin}) && s.cpu_active(origin)==0
+            action="local";
+        else
+            action="offload"; helper=candidates(1);
         end
     case "cbr_threshold"
         helper=candidates(1);
@@ -158,6 +215,14 @@ switch s.policy
         helper=candidates(1);
         action="offload";
 end
+end
+
+function finishMs=forecastCpuFinishMs(s,vehicle,nowS,newCycles)
+backlogCycles=sum(arrayfun(@(id)s.tasks(id).cycles,s.cpu_queue{vehicle}));
+if s.cpu_active(vehicle)>0
+    backlogCycles=backlogCycles+max(0,s.cpu_finish_s(vehicle)-nowS)*s.cpu_rate(vehicle);
+end
+finishMs=nowS*1000+(backlogCycles+newCycles)/s.cpu_rate(vehicle)*1000;
 end
 
 function upper=scoreRisk(model,observation)

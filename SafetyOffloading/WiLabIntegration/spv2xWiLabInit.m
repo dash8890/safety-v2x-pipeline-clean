@@ -53,6 +53,17 @@ for v = ids'
     s.cpu_rate(v) = cfg.compute.cpu_cycles_per_s_min + ...
         u*(cfg.compute.cpu_cycles_per_s_max-cfg.compute.cpu_cycles_per_s_min);
 end
+if isfield(cfg.compute,'cpu_override_ids')
+    overrideIDs=double(cfg.compute.cpu_override_ids(:));
+    overrideRates=double(cfg.compute.cpu_override_cycles_per_s(:));
+    assert(numel(overrideIDs)==numel(overrideRates), ...
+        'SafetyOffloading:CPUOverride','CPU override IDs and rates must have equal length');
+    for oi=1:numel(overrideIDs)
+        assert(ismember(overrideIDs(oi),ids),'SafetyOffloading:CPUOverride', ...
+            'CPU override vehicle %d is not active',overrideIDs(oi));
+        s.cpu_rate(overrideIDs(oi))=overrideRates(oi);
+    end
+end
 
 emptyMeta = struct('valid',false,'packet_id',0,'kind',"",'task_id',0, ...
     'stage',"",'fragment',0,'fragments',0,'src',0,'dst',0,'created_ms',0, ...
@@ -64,11 +75,49 @@ s.radio_rows = cell(0,13);
 s.decision_rows = cell(0,20);
 s.output_folder = string(outParams.outputFolder);
 
-originCount = max(1,round(numel(ids)*cfg.compute.origin_fraction));
-originIndex = unique(round(linspace(1,numel(ids),originCount)));
-origins = ids(originIndex);
-releaseMs = (0:cfg.compute.arrival_interval_ms:(simParams.simulationTime*1000-1))';
-nTasks = numel(releaseMs)*numel(origins);
+if isfield(cfg.compute,'origin_ids')
+    origins=double(cfg.compute.origin_ids(:));
+    assert(all(ismember(origins,ids)),'SafetyOffloading:OriginOverride', ...
+        'Every configured origin must be an active vehicle');
+else
+    originCount = max(1,round(numel(ids)*cfg.compute.origin_fraction));
+    originIndex = unique(round(linspace(1,numel(ids),originCount)));
+    origins = ids(originIndex);
+end
+releaseMs=[]; releaseOrigins=[];
+if isfield(cfg.compute,'deterministic_release_ms')
+    releaseMs=double(cfg.compute.deterministic_release_ms(:));
+    if isfield(cfg.compute,'deterministic_origin_ids')
+        releaseOrigins=double(cfg.compute.deterministic_origin_ids(:));
+    else
+        assert(isscalar(origins),'SafetyOffloading:DeterministicTasks', ...
+            'deterministic_origin_ids is required with multiple origins');
+        releaseOrigins=repmat(origins(1),numel(releaseMs),1);
+    end
+    assert(numel(releaseMs)==numel(releaseOrigins), ...
+        'SafetyOffloading:DeterministicTasks','Release and origin arrays must have equal length');
+    [releaseMs,order]=sort(releaseMs); releaseOrigins=releaseOrigins(order);
+elseif isfield(cfg.compute,'arrival_model') && string(cfg.compute.arrival_model)=="poisson"
+    assert(isfield(cfg.compute,'arrival_rate_tasks_per_s') && cfg.compute.arrival_rate_tasks_per_s>0, ...
+        'SafetyOffloading:ArrivalRate','Poisson workload requires arrival_rate_tasks_per_s > 0');
+    for o=1:numel(origins)
+        timeMs=0; arrivalIndex=0;
+        while true
+            arrivalIndex=arrivalIndex+1;
+            u=stableUniform(simParams.seed,"task-arrival",origins(o),arrivalIndex);
+            timeMs=timeMs+(-log(max(u,realmin))/cfg.compute.arrival_rate_tasks_per_s)*1000;
+            if timeMs>=simParams.simulationTime*1000, break; end
+            releaseMs(end+1,1)=timeMs; %#ok<AGROW>
+            releaseOrigins(end+1,1)=origins(o); %#ok<AGROW>
+        end
+    end
+    [releaseMs,order]=sort(releaseMs); releaseOrigins=releaseOrigins(order);
+else
+    epochs=(0:cfg.compute.arrival_interval_ms:(simParams.simulationTime*1000-1))';
+    releaseMs=repelem(epochs,numel(origins));
+    releaseOrigins=repmat(origins(:),numel(epochs),1);
+end
+nTasks = numel(releaseMs);
 taskTemplate = struct('task_id',0,'origin',0,'release_ms',0,'deadline_ms',0, ...
     'input_bytes',0,'output_bytes',0,'cycles',0,'value',1,'action',"pending", ...
     'helper',0,'status',"pending",'input_fragments',0,'input_received',0, ...
@@ -77,13 +126,11 @@ taskTemplate = struct('task_id',0,'origin',0,'release_ms',0,'deadline_ms',0, ...
     'decision_id',0);
 s.tasks = repmat(taskTemplate,nTasks,1);
 k = 0;
-for r = 1:numel(releaseMs)
-    for o = 1:numel(origins)
-        k=k+1; t=taskTemplate; t.task_id=k; t.origin=origins(o); t.release_ms=releaseMs(r);
-        t.deadline_ms=releaseMs(r)+cfg.compute.deadline_ms; t.input_bytes=cfg.compute.input_bytes;
-        t.output_bytes=cfg.compute.output_bytes; t.cycles=cfg.compute.cycles_per_task;
-        s.tasks(k)=t;
-    end
+for r = 1:nTasks
+    k=k+1; t=taskTemplate; t.task_id=k; t.origin=releaseOrigins(r); t.release_ms=releaseMs(r);
+    t.deadline_ms=releaseMs(r)+cfg.compute.deadline_ms; t.input_bytes=cfg.compute.input_bytes;
+    t.output_bytes=cfg.compute.output_bytes; t.cycles=cfg.compute.cycles_per_task;
+    s.tasks(k)=t;
 end
 s.safety_row_start=zeros(ceil(simParams.simulationTime/(cfg.safety.generation_interval_ms/1000))*numel(ids) + ...
     nTasks*(ceil(cfg.compute.input_bytes/cfg.radio.max_transport_block_bytes)+ ...
