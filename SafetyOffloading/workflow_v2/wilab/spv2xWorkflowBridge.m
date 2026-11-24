@@ -94,6 +94,8 @@ W.next_adv_s=zeros(1,numel(map));
 W.adv_seq=zeros(1,numel(map));
 W.demo_log=struct('t_s',{},'action_idx',{},'obs',{},'mask',{});
 W.collect_demos=isfield(cfg.workflow,'collect_demos') && logical(cfg.workflow.collect_demos);
+W.collect_fresh_demos=isfield(cfg.workflow,'collect_fresh_demos') && logical(cfg.workflow.collect_fresh_demos);
+W.fresh_demo_log=struct('t_s',{},'features',{},'action_index',{},'kind',{});
 W.ddqn_eps=0;
 if isfield(cfg.workflow,'ddqn_eps'), W.ddqn_eps=double(cfg.workflow.ddqn_eps); end
 W.ddqn_dagger_beta=0;
@@ -417,6 +419,17 @@ fprintf(fid,'%s',jsonencode(struct('policy',char(s.policy),'seed',simParams.seed
     'radio_data_fragments',summ.radio_data_fragments, ...
     'radio_mode',char(W.radio_mode)),'PrettyPrint',true));
 fclose(fid);
+% Fresh candidate-index BC examples. Each row is one executable candidate
+% selected by the causal teacher, so no legacy action IDs enter P3 training.
+if isfield(W,'fresh_demo_log') && ~isempty(W.fresh_demo_log)
+    nd=numel(W.fresh_demo_log); F=zeros(nd,numel(W.fresh_demo_log(1).features)); A=zeros(nd,1); T=zeros(nd,1); K=strings(nd,1);
+    for i=1:nd
+        F(i,:)=W.fresh_demo_log(i).features; A(i)=W.fresh_demo_log(i).action_index;
+        T(i)=W.fresh_demo_log(i).t_s; K(i)=W.fresh_demo_log(i).kind;
+    end
+    fresh=struct('t_s',T,'features',F,'action_index',A,'kind',K);
+    fid=fopen(fullfile(folder,"fresh_demos.json"),'w'); fprintf(fid,'%s',jsonencode(fresh)); fclose(fid);
+end
 % WiLab BC demos (obs/action/mask)
 if isfield(W,'demo_log') && ~isempty(W.demo_log)
     nd=numel(W.demo_log);
@@ -686,6 +699,19 @@ for i=1:numel(acts)
     a=WorkflowActionValidator('legacy_to_fresh',W,acts(i));
     if ~WorkflowActionValidator('validate',W,a)
         continue
+    end
+    if isfield(W,'collect_fresh_demos') && W.collect_fresh_demos
+        c=WorkflowCandidateBuilder(W); X=WorkflowFreshCandidateFeatures(W,c); ix=0;
+        for ci=1:numel(c)
+            if c(ci).kind==a.kind && c(ci).workflow_id==a.workflow_id && ...
+                    c(ci).stage_id==a.stage_id && c(ci).helper_id==a.helper_id && c(ci).edge_id==a.edge_id
+                ix=ci; break
+            end
+        end
+        if ix>0
+            W.fresh_demo_log(end+1)=struct('t_s',nowS,'features',X(ix,:), ...
+                'action_index',ix,'kind',a.kind); %#ok<AGROW>
+        end
     end
     W=WorkflowActionValidator('apply',W,a);
     W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.kind), ...
