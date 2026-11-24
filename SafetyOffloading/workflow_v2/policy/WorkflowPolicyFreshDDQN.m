@@ -7,6 +7,17 @@ if isempty(score)
     score=2*X(:,8)-0.15*X(:,6)-0.10*X(:,9)+0.05*X(:,10);
 end
 score(categoricalKind(c,"STOP_PLAN"))=-1e6;
+% Rejecting a workflow is dominated whenever its first eligible stage can be
+% committed locally.  Keep the learned score from selecting this destructive
+% action through unsupported extrapolation in offline TD updates.
+for i=1:numel(c)
+    if c(i).kind~="REJECT_WORKFLOW", continue; end
+    for j=1:numel(c)
+        if c(j).kind=="COMMIT_LOCAL" && c(j).workflow_id==c(i).workflow_id
+            score(i)=-1e6; break
+        end
+    end
+end
 [~,ix]=max(score); action=c(ix); action.detail="fresh_candidate_bootstrap";
 end
 
