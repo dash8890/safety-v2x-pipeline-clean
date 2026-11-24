@@ -95,7 +95,7 @@ W.adv_seq=zeros(1,numel(map));
 W.demo_log=struct('t_s',{},'action_idx',{},'obs',{},'mask',{});
 W.collect_demos=isfield(cfg.workflow,'collect_demos') && logical(cfg.workflow.collect_demos);
 W.collect_fresh_demos=isfield(cfg.workflow,'collect_fresh_demos') && logical(cfg.workflow.collect_fresh_demos);
-W.fresh_demo_log=struct('t_s',{},'features',{},'action_index',{},'kind',{});
+W.fresh_demo_log=struct('t_s',{},'candidate_features',{},'action_index',{},'kind',{});
 W.ddqn_eps=0;
 if isfield(cfg.workflow,'ddqn_eps'), W.ddqn_eps=double(cfg.workflow.ddqn_eps); end
 W.ddqn_dagger_beta=0;
@@ -422,13 +422,9 @@ fclose(fid);
 % Fresh candidate-index BC examples. Each row is one executable candidate
 % selected by the causal teacher, so no legacy action IDs enter P3 training.
 if isfield(W,'fresh_demo_log') && ~isempty(W.fresh_demo_log)
-    nd=numel(W.fresh_demo_log); F=zeros(nd,numel(W.fresh_demo_log(1).features)); A=zeros(nd,1); T=zeros(nd,1); K=strings(nd,1);
-    for i=1:nd
-        F(i,:)=W.fresh_demo_log(i).features; A(i)=W.fresh_demo_log(i).action_index;
-        T(i)=W.fresh_demo_log(i).t_s; K(i)=W.fresh_demo_log(i).kind;
-    end
-    fresh=struct('t_s',T,'features',F,'action_index',A,'kind',K);
-    fid=fopen(fullfile(folder,"fresh_demos.json"),'w'); fprintf(fid,'%s',jsonencode(fresh)); fclose(fid);
+    % Keep each variable-size candidate matrix intact.  Flattening to only
+    % the chosen row would make candidate-index BC impossible to train.
+    fid=fopen(fullfile(folder,"fresh_demos.json"),'w'); fprintf(fid,'%s',jsonencode(W.fresh_demo_log)); fclose(fid);
 end
 % WiLab BC demos (obs/action/mask)
 if isfield(W,'demo_log') && ~isempty(W.demo_log)
@@ -709,7 +705,7 @@ for i=1:numel(acts)
             end
         end
         if ix>0
-            W.fresh_demo_log(end+1)=struct('t_s',nowS,'features',X(ix,:), ...
+            W.fresh_demo_log(end+1)=struct('t_s',nowS,'candidate_features',X, ...
                 'action_index',ix,'kind',a.kind); %#ok<AGROW>
         end
     end
