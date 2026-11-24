@@ -14,7 +14,7 @@ function score=bcScore(W,X)
 score=[];
 if ~isfield(W,'fresh_bc_weights_json') || ~isfile(W.fresh_bc_weights_json), return; end
 persistent cachePath cache
-if isempty(cache) || cachePath~=W.fresh_bc_weights_json
+if isempty(cache) || ~strcmp(char(cachePath),char(W.fresh_bc_weights_json))
     d=jsondecode(fileread(W.fresh_bc_weights_json)); s=d.state_dict;
     cache=struct('w1',double(s.net_0_weight),'b1',double(s.net_0_bias(:))', ...
         'w2',double(s.net_2_weight),'b2',double(s.net_2_bias));
