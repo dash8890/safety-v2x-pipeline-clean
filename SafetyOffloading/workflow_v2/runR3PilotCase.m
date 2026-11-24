@@ -17,6 +17,7 @@ simTimeOverride=NaN;
 freshEps=NaN;
 freshExplorationMode="";
 freshCoverageRate=NaN;
+freshWeightsJson="";
 for i=1:2:numel(varargin)
     switch string(varargin{i})
         case "radio_mode", radioMode=string(varargin{i+1});
@@ -26,6 +27,7 @@ for i=1:2:numel(varargin)
         case "fresh_ddqn_epsilon", freshEps=double(varargin{i+1});
         case "fresh_exploration_mode", freshExplorationMode=string(varargin{i+1});
         case "fresh_coverage_rate", freshCoverageRate=double(varargin{i+1});
+        case "fresh_weights_json", freshWeightsJson=string(varargin{i+1});
     end
 end
 
@@ -53,6 +55,7 @@ if ~isnan(loadRho), cfg.workflow.cpu_offered_load=loadRho; end
 if ~isnan(freshEps), cfg.workflow.fresh_ddqn_epsilon=freshEps; end
 if strlength(freshExplorationMode)>0, cfg.workflow.fresh_exploration_mode=char(freshExplorationMode); end
 if ~isnan(freshCoverageRate), cfg.workflow.fresh_coverage_rate=freshCoverageRate; end
+if strlength(freshWeightsJson)>0, cfg.workflow.fresh_bc_weights_json=char(freshWeightsJson); end
 cfgPath=fullfile(caseRoot,'config.json');
 fid=fopen(cfgPath,'w'); fprintf(fid,'%s',jsonencode(cfg,'PrettyPrint',true)); fclose(fid);
 

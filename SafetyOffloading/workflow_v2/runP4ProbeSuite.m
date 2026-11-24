@@ -9,8 +9,10 @@ arguments (Repeating)
 end
 root=fileparts(mfilename('fullpath'));
 cfg=fullfile(root,'config','p3_bc_selected.json');
+weights="";
 for i=1:2:numel(varargin)
     if string(varargin{i})=="config", cfg=string(varargin{i+1}); end
+    if string(varargin{i})=="fresh_weights_json", weights=string(varargin{i+1}); end
 end
 % Reserved development probes: never used by exploratory rollout collection
 % or the final held-out test.
@@ -20,9 +22,9 @@ for i=1:numel(seeds)
     summaries{i}=runR3PilotCase(fullfile(caseRoot,sprintf('seed%d',seeds(i))), ...
         policy,seeds(i),'config',cfg,'cpu_offered_load',0.85, ...
         'fresh_ddqn_epsilon',0,'fresh_exploration_mode','none', ...
-        'fresh_coverage_rate',0);
+        'fresh_coverage_rate',0,'fresh_weights_json',weights);
 end
 fid=fopen(fullfile(caseRoot,'probe_manifest.json'),'w');
 fprintf(fid,'%s',jsonencode(struct('seeds',seeds,'policy',policy, ...
-    'mode','greedy_exploit','config',cfg),'PrettyPrint',true)); fclose(fid);
+    'mode','greedy_exploit','config',cfg,'fresh_weights_json',weights),'PrettyPrint',true)); fclose(fid);
 end

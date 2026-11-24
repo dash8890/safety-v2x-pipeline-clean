@@ -2,6 +2,7 @@
 """Prioritized, n-step Double-DQN update for the fixed fresh candidate scorer."""
 from __future__ import annotations
 import json
+import argparse
 from pathlib import Path
 import numpy as np
 import torch
@@ -57,7 +58,19 @@ def draw(priorities, rare, count, rng):
     return np.concatenate((choose_rare, choose_all))
 
 
+def write_model(path: Path, model: Q, source: str) -> None:
+    state = {k: v.detach().tolist() for k, v in model.state_dict().items()}
+    path.write_text(json.dumps({"input_dim": 15, "hidden": 96, "state_dict": state,
+                                "source": source}))
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint-dir", type=Path,
+                        default=ROOT / "outputs" / "p4_checkpoints")
+    parser.add_argument("--checkpoint-every", type=int, default=20)
+    args = parser.parse_args()
+    args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(23)
     torch.manual_seed(23)
     data = np.load(REPLAY, allow_pickle=True)["transitions"]
@@ -98,9 +111,10 @@ def main():
                         "priority_p95": float(np.quantile(priorities, .95)),
                         "bc_retention": retention})
         print(json.dumps(history[-1]), flush=True)
-    state = {k: v.detach().tolist() for k, v in q.state_dict().items()}
-    OUT.write_text(json.dumps({"input_dim": 15, "hidden": 96, "state_dict": state,
-                               "source": "fresh_p4_nstep_prioritized_ddqn"}))
+        if (epoch + 1) % args.checkpoint_every == 0:
+            write_model(args.checkpoint_dir / f"fresh_ddqn_epoch{epoch + 1:03d}.json", q,
+                        "fresh_p4_nstep_prioritized_ddqn_checkpoint")
+    write_model(OUT, q, "fresh_p4_nstep_prioritized_ddqn")
     REPORT.write_text(json.dumps({"history": history, "transitions": len(data),
                                   "rare_transitions": int(rare.sum())}, indent=2))
 
