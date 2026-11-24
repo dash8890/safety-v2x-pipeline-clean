@@ -59,15 +59,28 @@ end
 function [hid,why]=pickMobile(W,st)
 best=inf; hid=W.origin_id; why="local_mob";
 for v=1:numel(W.cpu)
-    if v~=W.origin_id && ~W.contact(W.origin_id,v), continue; end
-    q=0;
-    if ~isempty(W.cpu(v).running), q=q+W.cpu(v).running.remaining; end
-    if ~isempty(W.cpu(v).queue)
-        for j=1:numel(W.cpu(v).queue), q=q+W.cpu(v).queue(j).remaining; end
+    if v==W.origin_id
+        q=queued(W.cpu(v)); rate=W.cpu(v).available_hz; link=0;
+    else
+        a=receivedAdv(W,v); if isempty(a) || ~a.willingness, continue; end
+        q=a.queued_cycles+a.admitted_pending_cycles; rate=a.available_cpu_hz; link=0.050;
     end
-    t=q/max(W.cpu(v).available_hz,1)+st.required_cycles/max(W.cpu(v).available_hz,1);
-    if v~=W.origin_id, t=t+2*max(W.default_link_delay_s,0.010); end
+    t=(q+st.required_cycles)/max(rate,1)+link;
     if t<best, best=t; hid=v; why=sprintf('mob_v%d_t=%.4f',v,t); end
+end
+end
+
+function q=queued(S)
+q=0; if ~isempty(S.running), q=q+S.running.remaining; end
+for i=1:numel(S.queue), q=q+S.queue(i).remaining; end
+end
+
+function a=receivedAdv(W,helper)
+a=[]; newest=-inf; if ~isfield(W,'advertisements'), return; end
+for i=1:numel(W.advertisements)
+    x=W.advertisements(i);
+    if x.helper_id~=helper || W.now_s>x.rx_s+x.ttl_s+1e-12, continue; end
+    if x.rx_s>newest, a=x; newest=x.rx_s; end
 end
 end
 
