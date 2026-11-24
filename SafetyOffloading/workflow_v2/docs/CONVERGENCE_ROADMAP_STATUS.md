@@ -20,7 +20,8 @@ Evidence: `tests/runBaselineAcceptance.m`.
 
 ## P1 — physically real scheduling headroom
 
-Status: **next active stage**.
+Status: **PASS** on 2026-11-24; selected regime: high CPU contention
+(`cpu_offered_load=0.85`), development seeds 1101–1105.
 
 Before BC/DDQN convergence work starts, run the predeclared six-cell
 development matrix (three CPU-contention levels x favorable/intermittent
@@ -29,6 +30,19 @@ fresh action interface.  Required evidence is queue pressure, packet latency,
 remote completion, radio cost, and attainable utility headroom versus
 `LOCAL_EDF`.  The P1 output selects one physically plausible regime; it is
 not a final-test result.
+
+Completed evidence: `outputs/p1_opportunity_run1/per_seed.csv`.
+
+- In the selected high-contention cells, `LOCAL_EDF` completed 8.0 workflows
+  on average, while causal `QUEUE_AWARE` completed 15.4: **+92.5%**.
+- `QUEUE_AWARE` completed 3.6 remote stages and sent 13.8 Mode-2 data
+  fragments per seed on average.  Thus the selected regime contains actual
+  radio-mediated remote execution, rather than an abstract-link proxy.
+- Low and moderate cells produced no remote-stage completion; their utility
+  gap is a local scheduling effect and is not used as offloading evidence.
+
+P2 is now the active gate: port and acceptance-test the full fresh baseline
+suite in the selected P1 regime before any BC/DDQN convergence run.
 
 ## Convergence policy
 
