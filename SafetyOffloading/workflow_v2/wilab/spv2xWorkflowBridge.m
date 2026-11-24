@@ -74,6 +74,8 @@ if isfield(cfg.workflow,'fresh_bc_weights_json')
     W.fresh_bc_weights_json=string(cfg.workflow.fresh_bc_weights_json);
 elseif string(s.policy)=="workflow_fresh_ddqn"
     W.fresh_bc_weights_json=fullfile(fileparts(mfilename('fullpath')),'..','drl','outputs','fresh_ddqn.json');
+elseif string(s.policy)=="workflow_fresh_bc"
+    W.fresh_bc_weights_json=fullfile(fileparts(mfilename('fullpath')),'..','drl','outputs','fresh_candidate_bc.json');
 end
 if isfield(cfg.workflow,'ddqn_weights_json')
     wp=string(cfg.workflow.ddqn_weights_json);
@@ -562,7 +564,7 @@ end
 function W=runController(W,nowS)
 W.now_s=nowS;
 pol=string(W.policy);
-if pol=="workflow_fresh_ddqn"
+if pol=="workflow_fresh_ddqn" || pol=="workflow_fresh_bc"
     [a,X]=WorkflowPolicyFreshDDQN(W);
     c=WorkflowCandidateBuilder(W); ix=0;
     for ci=1:numel(c)
