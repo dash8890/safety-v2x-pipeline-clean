@@ -46,6 +46,9 @@ wcfg=struct('origin_id',1,'n_vehicles',numel(map),'cpu_hz',hz, ...
     'tb_bytes',cfg.radio.max_transport_block_bytes,'rel_deadline_s',relDl, ...
     'ctrl_delay_s',0,'default_link_delay_s',0,'slot_s',0.0005, ...
     'max_admitted_cycles',2*hz(1)*relDl);
+if isfield(cfg.workflow,'stage_cycles')
+    wcfg.stage_cycles=double(cfg.workflow.stage_cycles(:))';
+end
 W=WorkflowEngine('new',wcfg);
 W.mode="wilab_mode2";
 W.wilab_id_map=map;

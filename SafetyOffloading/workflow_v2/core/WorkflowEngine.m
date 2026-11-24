@@ -38,6 +38,9 @@ W.origin_id=getf(cfg,'origin_id',1);
 W.n_vehicles=getf(cfg,'n_vehicles',3);
 W.tb_bytes=getf(cfg,'tb_bytes',1180);
 W.rel_deadline_s=getf(cfg,'rel_deadline_s',0.5);
+W.stage_cycles=getf(cfg,'stage_cycles',[9e6 12e6 12e6 3e6]);
+assert(numel(W.stage_cycles)==4 && all(W.stage_cycles>0), ...
+    'WorkflowEngine:StageCycles','stage_cycles must contain four positive values');
 W.ctrl_delay_s=getf(cfg,'ctrl_delay_s',0.005);
 W.default_link_delay_s=getf(cfg,'default_link_delay_s',0.010);
 W.slot_s=getf(cfg,'slot_s',0.0005);
@@ -92,7 +95,8 @@ wf=struct('workflow_id',wfId,'origin_id',W.origin_id,'release_s',releaseS, ...
 W.workflows(end+1)=wf; %#ok<AGROW>
 
 % Stages A/B/C/D
-specs={{"A",9e6,{},{}},{"B",12e6,{},{}},{"C",12e6,{},{}},{"D",3e6,{},{}}};
+specs={{"A",W.stage_cycles(1),{},{}},{"B",W.stage_cycles(2),{},{}}, ...
+       {"C",W.stage_cycles(3),{},{}},{"D",W.stage_cycles(4),{},{}}};
 for i=1:numel(specs)
     st=emptyStage(wfId,specs{i}{1},specs{i}{2});
     W.stages(end+1)=st; %#ok<AGROW>
