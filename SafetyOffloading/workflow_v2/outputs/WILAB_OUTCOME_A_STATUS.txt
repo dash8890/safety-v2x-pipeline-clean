@@ -1,21 +1,11 @@
-﻿WILAB OUTCOME A — FAILED
-time: 2026-11-24T10:21:09.6596476+09:00
+﻿WILAB OUTCOME A — FAILED (stopped)
+time: 2026-11-24T10:41:29.1458594+09:00
 
-GOAL 1 (greedy FULL5 ≥52 vs PDP 45.6): MET earlier — mean 62.4 (outputs/wilab_best_full5/full5_report.json). This curve FULL5 probe mean=60.0.
+GOAL 1 (greedy FULL5 ≥52 vs PDP 45.6): MET — banked mean 62.4 (outputs/wilab_best_full5/full5_report.json).
 
-GOAL 2 (online improve→plateau of DDQN above teacher, not BC-tie theater): NOT MET.
+GOAL 2 (online improve→plateau above teacher/BC): NOT MET.
 
-ROOT CAUSE (single):
-Online WiLab fine-tune never moved the greedy holdout beyond the congest-BC snapshot. mid300 stayed ~72 from init; FULL5 probes ~60 matched the BC/congest level; train-seed explore scores (36–72) were noise around that same policy, not a rising eval curve. Continuing more ε/Boltzmann curves repeats the same BC-tie loop.
-
-TRIED AND STILL FAILED:
-1) Uniform/soft explore → catastrophic V=12 / sub-PDP train eps
-2) LOCAL/HOLD-only explore → invalid for offloading Outcome A (aborted)
-3) nH hard-cap while explore → starved seed300 to V=12
-4) Always-on Boltzmann → explore trainV≪greedy
-5) ε-as-probability + congest shield + curve 1/3 → still flat greedy FULL5≈60, no improve-above-BC story
-
-STOP: further curves under this recipe are time waste, not delivery.
+DAgger closeout (dagger_beat_init_full5, beat≥62 vs INIT_FULL5=60): STOPPED — no beat of INIT. Latest train curve mid300 eval stayed 72 (BC-level); train ep returns 48/48/72/60/36 with no rising FULL5 above BC snapshot. Same BC-tie failure mode as ε/Boltzmann recipes.
 
 BANKED ONLY: congest+BC greedy FULL5 62.4 vs PDP 45.6.
 MISSING: learned improve→plateau.
