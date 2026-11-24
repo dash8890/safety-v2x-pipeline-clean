@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT=Path(__file__).resolve().parent.parent
-SRC=ROOT/'outputs'/'p4_trace_smoke'
+SRC=ROOT/'outputs'/'p4_bc_traces'
 OUT=Path(__file__).resolve().parent/'outputs'/'fresh_ddqn_transitions.npz'
 
 def main():
