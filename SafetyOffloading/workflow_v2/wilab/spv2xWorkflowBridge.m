@@ -670,21 +670,16 @@ end
 
 function W=applyActs(W,nowS,pol,acts)
 for i=1:numel(acts)
-    a=acts(i);
-    W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.type), ...
-        'workflow_id',a.workflow_id,'detail',string(a.detail)); %#ok<AGROW>
-    switch string(a.type)
-        case "COMMIT_LOCAL"
-            W=WorkflowEngine('commit_local',W,a.workflow_id,a.stage_id);
-        case "REQUEST_REMOTE"
-            W=WorkflowEngine('request_remote',W,a.workflow_id,a.stage_id,a.helper_id);
-        case "RELEASE_EDGE"
-            W=WorkflowEngine('release_edge',W,a.workflow_id,a.edge_name);
-        case "DROP"
-            W=WorkflowEngine('drop_workflow',W,a.workflow_id);
-        case "STOP"
-            % hold / no-op
+    % Legacy policies may still propose their old action structs, but the
+    % bridge executes only the fresh union.  In particular, an already
+    % committed stage is not re-committed on every WiLab callback.
+    a=WorkflowActionValidator('legacy_to_fresh',W,acts(i));
+    if ~WorkflowActionValidator('validate',W,a)
+        continue
     end
+    W=WorkflowActionValidator('apply',W,a);
+    W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.kind), ...
+        'workflow_id',a.workflow_id,'detail',string(a.detail)); %#ok<AGROW>
 end
 end
 
