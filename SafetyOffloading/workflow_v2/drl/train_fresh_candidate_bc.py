@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ROOT=Path(__file__).resolve().parent
-DATA=ROOT.parent/'outputs'/'p3_bc_dataset_v2'
+DATA=ROOT.parent/'outputs'/'p3_bc_dataset_v3'
 OUT=ROOT/'outputs'; OUT.mkdir(exist_ok=True)
 
 class Scorer(nn.Module):
