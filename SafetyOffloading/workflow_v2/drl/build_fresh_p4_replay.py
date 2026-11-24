@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Build n-step, coverage-labelled replay from fresh physical WiLab traces."""
+from __future__ import annotations
+import json
+from pathlib import Path
+import numpy as np
+
+ROOT = Path(__file__).resolve().parent.parent
+SOURCES = [ROOT / "outputs" / "p4_exploration_batches"]
+OUT = Path(__file__).resolve().parent / "outputs" / "fresh_p4_replay.npz"
+GAMMA = 0.99
+N_STEP = 3
+
+
+def decision_reward(decisions: list[dict], terminal: float, i: int) -> float:
+    after = float(decisions[i + 1]["utility_before"]) if i + 1 < len(decisions) else terminal
+    return after - float(decisions[i]["utility_before"])
+
+
+def main() -> None:
+    replay = []
+    manifests = []
+    for source in SOURCES:
+        for path in sorted(source.glob("**/fresh_trace.json")):
+            raw = json.loads(path.read_text())
+            decisions = [d for d in raw["decisions"] if d.get("kind") != "STOP_PLAN"]
+            if not decisions:
+                continue
+            terminal = float(raw["terminal_utility"])
+            manifests.append(str(path))
+            for i, current in enumerate(decisions):
+                reward = 0.0
+                last = i
+                for k in range(N_STEP):
+                    j = i + k
+                    if j >= len(decisions):
+                        break
+                    reward += (GAMMA**k) * decision_reward(decisions, terminal, j)
+                    last = j
+                    if j + 1 == len(decisions):
+                        break
+                done = last + 1 == len(decisions)
+                next_features = (np.zeros((0, len(current["candidate_features"][0])), np.float32)
+                                 if done else np.asarray(decisions[last + 1]["candidate_features"], np.float32))
+                features = np.asarray(current["candidate_features"], np.float32)
+                action = int(current["action_index"]) - 1
+                kind = str(current.get("kind", ""))
+                # Preserve scarce outcomes even before the first TD update.
+                rare = bool(abs(reward) > 0 or kind in {"REQUEST_REMOTE_COMMIT", "RELEASE_EDGE", "REJECT_WORKFLOW"})
+                replay.append({
+                    "cur": features, "action": action, "next": next_features,
+                    "reward": float(reward), "done": bool(done), "kind": kind,
+                    "coverage_bin": int(current.get("coverage_bin", 0)), "rare": rare,
+                    "source": str(path),
+                })
+    if not replay:
+        raise RuntimeError("no executable P4 exploration decisions found")
+    OUT.parent.mkdir(exist_ok=True)
+    np.savez_compressed(OUT, transitions=np.asarray(replay, dtype=object))
+    manifest = OUT.with_suffix(".manifest.json")
+    manifest.write_text(json.dumps({"n_step": N_STEP, "gamma": GAMMA,
+                                    "traces": manifests, "transitions": len(replay)}, indent=2))
+    print(json.dumps({"transitions": len(replay), "output": str(OUT), "manifest": str(manifest)}))
+
+
+if __name__ == "__main__":
+    main()
