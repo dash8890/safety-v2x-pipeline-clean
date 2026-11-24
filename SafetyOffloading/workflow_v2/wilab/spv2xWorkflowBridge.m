@@ -445,9 +445,14 @@ end
 if isfield(W,'fresh_trace') && ~isempty(W.fresh_trace)
     % Terminal realized utility is retained with every causal decision; the
     % Python DDQN trainer converts successive entries into TD transitions.
-    trace=W.fresh_trace; terminalUtility=totalUtility(W);
+    trace=W.fresh_trace; terminalUtility=totalUtility(W); expiredWorkflows=0;
+    for wi=1:numel(W.workflows)
+        expiredWorkflows=expiredWorkflows+(W.workflows(wi).status=="EXPIRED");
+    end
     fid=fopen(fullfile(folder,"fresh_trace.json"),'w');
-    fprintf(fid,'%s',jsonencode(struct('terminal_utility',terminalUtility,'decisions',trace))); fclose(fid);
+    fprintf(fid,'%s',jsonencode(struct('terminal_utility',terminalUtility, ...
+        'expired_workflows',expiredWorkflows,'n_workflows',numel(W.workflows), ...
+        'decisions',trace))); fclose(fid);
 end
 % WiLab BC demos (obs/action/mask)
 if isfield(W,'demo_log') && ~isempty(W.demo_log)
