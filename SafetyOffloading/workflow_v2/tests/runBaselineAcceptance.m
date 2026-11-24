@@ -4,7 +4,7 @@ function out=runBaselineAcceptance()
 % these checks ensure every controller shares the fresh legal action API.
 here=fileparts(mfilename('fullpath')); root=fileparts(here); addpath(genpath(root));
 r2=runR2Acceptance();
-checks={@testFreshActionUnion,@testAckGatedRelease,@testNoFictitiousTime};
+checks={@testFreshActionUnion,@testAckGatedRelease,@testNoFictitiousTime,@testP1PoliciesNeedReceivedAdv};
 rows=struct('id',{},'ok',{},'msg',{});
 for i=1:numel(checks)
     try
@@ -44,6 +44,21 @@ W=WorkflowEngine('new',struct('n_vehicles',3)); [W,~]=WorkflowEngine('create_wor
 c=WorkflowCandidateBuilder(W); a=findAction(c,"STOP_PLAN",0,"",0);
 W=WorkflowActionValidator('apply',W,a); assert(W.now_s==t);
 msg='STOP_PLAN has no fictitious physical-time progression';
+end
+
+function msg=testP1PoliciesNeedReceivedAdv()
+% A helper cannot be selected merely because its true CPU state exists in W.
+W=WorkflowEngine('new',struct('n_vehicles',3,'cpu_hz',[5e8 2e9 1.5e9]));
+[W,~]=WorkflowEngine('create_workflow',W,0);
+W=WorkflowEngine('enqueue_background',W,1,100e6,1.0);
+a=WorkflowPolicyQueueAware(W); assert(a(1).type=="COMMIT_LOCAL", ...
+    'queue-aware policy used helper without a received ADV');
+W.advertisements=struct('helper_id',2,'rx_s',0,'generated_s',0,'ttl_s',0.3, ...
+    'nominal_cpu_hz',2e9,'available_cpu_hz',2e9,'queued_cycles',0, ...
+    'running_remaining_cycles',0,'admitted_pending_cycles',0,'willingness',true,'seq',1);
+a=WorkflowPolicyQueueAware(W); assert(a(1).type=="REQUEST_REMOTE" && a(1).helper_id==2, ...
+    'queue-aware policy did not use received ADV');
+msg='P1 queue-aware remote placement requires a fresh received HELPER_ADV';
 end
 
 function a=findAction(c,kind,wf,stage,helper)
