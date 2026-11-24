@@ -1,0 +1,10 @@
+{
+  "project": {"name": "workflow_v2_p3_bc", "contract_version": "fresh-wilab-p3"},
+  "radio": {"max_transport_block_bytes": 1180, "slot_duration_ms": 0.5, "subchannels": 5},
+  "safety": {"packet_bytes": 300, "generation_interval_ms": 100, "deadline_ms": 100, "receiver_range_m": 300, "receiver_sample_fraction": 0.05, "distance_bins_m": [0, 50, 100, 150, 200, 300]},
+  "control": {"schedule_interval_ms": 10},
+  "compute": {"origin_fraction": 0.08, "origin_cpu_ghz": 0.5, "helper_cpu_ghz": [1.5, 2.0], "helper_background_utilization": 0.0, "helper_range_m": 400, "background_job_cycles": 12000000, "input_bytes": 1500, "output_bytes": 300, "cycles_per_task": 72000000, "deadline_ms": 500, "cpu_cycles_per_s_min": 500000000, "cpu_cycles_per_s_max": 2000000000},
+  "workflow": {"helper_count": 2, "relative_deadline_s": 0.75, "arrival_times_s": [1.50, 1.58, 1.66, 1.74, 1.82, 1.90, 1.98, 2.06, 2.14, 2.22, 2.30, 2.38, 2.46, 2.54, 2.62, 2.70, 2.78, 2.86, 2.94, 3.02, 3.10, 3.18, 3.26, 3.34, 3.42, 3.50, 3.58, 3.66, 3.74, 3.82], "advertisement_period_s": 0.10, "advertisement_ttl_s": 0.30, "release_mode": "controlled", "radio_mode": "wilab_mode2", "cpu_hz": [500000000, 1500000000, 2000000000], "stage_cycles": [18000000, 24000000, 24000000, 6000000], "collect_demos": true, "force_scripted_contact": true},
+  "mobility": {"density_vehicles_per_km": 50},
+  "experiment": {"duration_s": 5.5, "development_seeds": [1101, 1102, 1103, 1104, 1105]}
+}
