@@ -18,7 +18,13 @@ for i=1:numel(c)
         end
     end
 end
-[~,ix]=max(score); action=c(ix); action.detail="fresh_candidate_bootstrap";
+legal=find(score>-1e5);
+eps=0; if isfield(W,'fresh_ddqn_epsilon'), eps=double(W.fresh_ddqn_epsilon); end
+if eps>0 && numel(legal)>1 && rand()<eps
+    ix=legal(randi(numel(legal))); action=c(ix); action.detail="fresh_ddqn_explore";
+else
+    [~,ix]=max(score); action=c(ix); action.detail="fresh_ddqn_greedy";
+end
 end
 
 function score=bcScore(W,X)

@@ -14,12 +14,14 @@ radioMode="wilab_mode2";
 loadRho=NaN;
 baseCfgOverride="";
 simTimeOverride=NaN;
+freshEps=NaN;
 for i=1:2:numel(varargin)
     switch string(varargin{i})
         case "radio_mode", radioMode=string(varargin{i+1});
         case "cpu_offered_load", loadRho=double(varargin{i+1});
         case "config", baseCfgOverride=string(varargin{i+1});
         case "simulation_time", simTimeOverride=double(varargin{i+1});
+        case "fresh_ddqn_epsilon", freshEps=double(varargin{i+1});
     end
 end
 
@@ -44,6 +46,7 @@ end
 cfg=jsondecode(fileread(baseCfg));
 cfg.workflow.radio_mode=char(radioMode);
 if ~isnan(loadRho), cfg.workflow.cpu_offered_load=loadRho; end
+if ~isnan(freshEps), cfg.workflow.fresh_ddqn_epsilon=freshEps; end
 cfgPath=fullfile(caseRoot,'config.json');
 fid=fopen(cfgPath,'w'); fprintf(fid,'%s',jsonencode(cfg,'PrettyPrint',true)); fclose(fid);
 
