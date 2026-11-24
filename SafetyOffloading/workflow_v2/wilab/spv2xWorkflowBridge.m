@@ -540,6 +540,13 @@ end
 function W=runController(W,nowS)
 W.now_s=nowS;
 pol=string(W.policy);
+if pol=="workflow_fresh_ddqn"
+    [a,~]=WorkflowPolicyFreshDDQN(W);
+    W=WorkflowActionValidator('apply',W,a);
+    W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.kind), ...
+        'workflow_id',a.workflow_id,'detail',string(a.detail)); %#ok<AGROW>
+    return
+end
 seqPol=pol=="workflow_value_greedy" || pol=="workflow_drop_low" || ...
     pol=="workflow_drop_low_cap" || pol=="workflow_drop_low_congest" || ...
     pol=="workflow_causal_ddqn";
