@@ -10,7 +10,9 @@ end
 if ~isfolder(outRoot), mkdir(outRoot); end
 seeds=double(cfgBase.experiment.development_seeds);
 loads=[0.30 0.65 0.85]; contacts=["favorable" "intermittent"];
-policies=["workflow_b0_local" "workflow_b4_joint"];
+% B1/B2 consume only received helper advertisements; B5 is explicitly
+% diagnostic and is excluded from any deployable-policy conclusion.
+policies=["workflow_b0_local" "workflow_b1_greedy" "workflow_b2_queue" "workflow_b5_privileged"];
 rows={};
 for li=1:numel(loads)
     for ci=1:numel(contacts)

@@ -21,14 +21,25 @@ end
 end
 
 function [hid,why]=pickMinFinish(W,st)
-% Ignore queues (independent placement): service = cycles/hz + crude link.
-best=inf; hid=W.origin_id; why="local";
+% Stateless, deployable placement: own CPU is local state; helper capacity
+% is used only after a received HELPER_ADV.  No helper queue is inspected.
+best=st.required_cycles/max(W.cpu(W.origin_id).available_hz,1);
+hid=W.origin_id; why="local";
 for v=1:numel(W.cpu)
-    tComp=st.required_cycles/max(W.cpu(v).available_hz,1);
-    tLink=0;
-    if v~=W.origin_id, tLink=2*W.default_link_delay_s; end
-    t=tComp+tLink;
-    if t<best, best=t; hid=v; why=sprintf('greedy_v%d_t=%.4f',v,t); end
+    if v==W.origin_id, continue; end
+    a=receivedAdv(W,v); if isempty(a) || ~a.willingness, continue; end
+    t=st.required_cycles/max(a.available_cpu_hz,1)+2*0.025;
+    if t<best, best=t; hid=v; why=sprintf('adv_greedy_v%d_t=%.4f',v,t); end
+end
+end
+
+function a=receivedAdv(W,helper)
+a=[]; best=-inf;
+if ~isfield(W,'advertisements'), return; end
+for i=1:numel(W.advertisements)
+    x=W.advertisements(i);
+    if x.helper_id~=helper || W.now_s>x.rx_s+x.ttl_s+1e-12, continue; end
+    if x.rx_s>best, a=x; best=x.rx_s; end
 end
 end
 

@@ -20,14 +20,17 @@ end
 end
 
 function [hid,why]=pickQueueAware(W,st)
-best=inf; hid=W.origin_id; why="local_q";
+% Origin queue is local state.  For helpers, use only their last received
+% advertisement; stale/missing advertisements make remote unavailable.
+q=queuedCycles(W.cpu(W.origin_id));
+best=(q+st.required_cycles)/max(W.cpu(W.origin_id).available_hz,1);
+hid=W.origin_id; why="local_q";
 for v=1:numel(W.cpu)
-    q=queuedCycles(W.cpu(v));
-    tWait=q/max(W.cpu(v).available_hz,1);
-    tComp=st.required_cycles/max(W.cpu(v).available_hz,1);
-    tLink=0; if v~=W.origin_id, tLink=2*max(W.default_link_delay_s,0.010); end
-    t=tWait+tComp+tLink;
-    if t<best, best=t; hid=v; why=sprintf('queue_v%d_t=%.4f_q=%g',v,t,q); end
+    if v==W.origin_id, continue; end
+    a=receivedAdv(W,v); if isempty(a) || ~a.willingness, continue; end
+    remoteQ=max(0,a.queued_cycles)+max(0,a.admitted_pending_cycles);
+    t=(remoteQ+st.required_cycles)/max(a.available_cpu_hz,1)+2*0.025;
+    if t<best, best=t; hid=v; why=sprintf('adv_queue_v%d_t=%.4f_q=%g',v,t,remoteQ); end
 end
 end
 
@@ -36,6 +39,16 @@ q=0;
 if ~isempty(S.running), q=q+S.running.remaining; end
 if ~isempty(S.queue)
     for i=1:numel(S.queue), q=q+S.queue(i).remaining; end
+end
+end
+
+function a=receivedAdv(W,helper)
+a=[]; best=-inf;
+if ~isfield(W,'advertisements'), return; end
+for i=1:numel(W.advertisements)
+    x=W.advertisements(i);
+    if x.helper_id~=helper || W.now_s>x.rx_s+x.ttl_s+1e-12, continue; end
+    if x.rx_s>best, a=x; best=x.rx_s; end
 end
 end
 
