@@ -14,8 +14,11 @@ def main():
     for p in SRC.glob('**/fresh_trace.json'):
         d=json.loads(p.read_text()); dec=d['decisions']; terminal=float(d['terminal_utility'])
         for i,x in enumerate(dec):
-            cur=np.asarray(x['candidate_features'],np.float32); action=int(x['action_index'])-1
+            cur=np.asarray(x['candidate_features'],np.float32)
+            if cur.ndim==1: cur=cur[None,:]
+            action=int(x['action_index'])-1
             nxt=np.asarray(dec[i+1]['candidate_features'],np.float32) if i+1<len(dec) else np.zeros((0,cur.shape[1]),np.float32)
+            if nxt.ndim==1: nxt=nxt[None,:]
             # Delayed physical utility: incremental realized utility, with the
             # terminal completion value credited only at episode end.
             u0=float(x['utility_before']); u1=float(dec[i+1]['utility_before']) if i+1<len(dec) else terminal
