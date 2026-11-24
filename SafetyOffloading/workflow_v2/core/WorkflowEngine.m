@@ -76,6 +76,9 @@ W.frag_rx_seen=containers.Map('KeyType','char','ValueType','logical');
 W.max_admitted_cycles=getf(cfg,'max_admitted_cycles',2*5e8*0.5);
 W.willingness=true(1,W.n_vehicles);
 W.last_d_start_s=NaN;
+W.advertisements=struct('helper_id',{},'rx_s',{},'generated_s',{},'ttl_s',{}, ...
+    'nominal_cpu_hz',{},'available_cpu_hz',{},'queued_cycles',{}, ...
+    'running_remaining_cycles',{},'admitted_pending_cycles',{},'willingness',{},'seq',{});
 end
 
 function [W,wfId]=createWorkflow(W,releaseS)
@@ -728,7 +731,27 @@ end
 
 function W=handleCtrl(W,msg,src,dst) %#ok<INUSD>
 ct=string(msg.ctrl_type);
-if ct=="COMMIT_REQ"
+if ct=="HELPER_ADV"
+    % Persist only a received, timestamped helper advertisement.  Policies
+    % must read this cache rather than helper CPU truth.
+    h=msg.helper_id;
+    adv=struct('helper_id',h,'rx_s',W.now_s,'generated_s',msg.generated_ms/1000, ...
+        'ttl_s',msg.ttl_ms/1000,'nominal_cpu_hz',msg.nominal_cpu_hz, ...
+        'available_cpu_hz',msg.available_cpu_hz,'queued_cycles',msg.queued_cycles, ...
+        'running_remaining_cycles',msg.running_remaining_cycles, ...
+        'admitted_pending_cycles',msg.admitted_pending_cycles, ...
+        'willingness',logical(msg.willingness),'seq',msg.seq);
+    found=false;
+    for i=1:numel(W.advertisements)
+        if W.advertisements(i).helper_id==h
+            if adv.seq>=W.advertisements(i).seq, W.advertisements(i)=adv; end
+            found=true; break
+        end
+    end
+    if ~found, W.advertisements(end+1)=adv; end %#ok<AGROW>
+    W.log=WorkflowMetrics('log',W.log,W.now_s,"HELPER_ADV_RX",'vehicle_id',dst, ...
+        'detail',sprintf('helper=%d seq=%d',h,msg.seq));
+elseif ct=="COMMIT_REQ"
     helper=msg.helper_id;
     % Map helper_id if message carries WiLab id — callers should use engine indices.
     [W.ledger{helper},resp]=WorkflowControlProtocol('helper_handle_req', ...

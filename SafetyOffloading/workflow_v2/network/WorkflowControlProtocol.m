@@ -180,6 +180,13 @@ if isfield(msg,'input_bytes'), m.input_bytes=msg.input_bytes; end
 if isfield(msg,'expire_ms'), m.expire_ms=msg.expire_ms; end
 if isfield(msg,'deadline_ms'), m.deadline_ms=msg.deadline_ms; end
 if isfield(msg,'reason'), m.reason=string(msg.reason); end
+if isfield(msg,'ttl_ms'), m.ttl_ms=msg.ttl_ms; end
+if isfield(msg,'nominal_cpu_hz'), m.nominal_cpu_hz=msg.nominal_cpu_hz; end
+if isfield(msg,'available_cpu_hz'), m.available_cpu_hz=msg.available_cpu_hz; end
+if isfield(msg,'queued_cycles'), m.queued_cycles=msg.queued_cycles; end
+if isfield(msg,'running_remaining_cycles'), m.running_remaining_cycles=msg.running_remaining_cycles; end
+if isfield(msg,'admitted_pending_cycles'), m.admitted_pending_cycles=msg.admitted_pending_cycles; end
+if isfield(msg,'willingness'), m.willingness=logical(msg.willingness); end
 cur=pendingTx{src};
 if isempty(cur)
     pendingTx{src}=m;

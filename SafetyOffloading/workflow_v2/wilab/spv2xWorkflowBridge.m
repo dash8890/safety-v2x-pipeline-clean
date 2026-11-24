@@ -66,6 +66,7 @@ W.p_high_early=getf(cfg.workflow,'p_high_early',0.05);
 W.p_high_late=getf(cfg.workflow,'p_high_late',0.75);
 W.phase_split_s=getf(cfg.workflow,'phase_split_s',0.16);
 W.advertisement_ttl_s=getf(cfg.workflow,'advertisement_ttl_s',0.30);
+W.advertisement_period_s=getf(cfg.workflow,'advertisement_period_s',0.10);
 if isfield(cfg.workflow,'ddqn_weights_json')
     wp=string(cfg.workflow.ddqn_weights_json);
     if ~isfile(wp)
@@ -78,15 +79,33 @@ if isfield(cfg.workflow,'ddqn_weights_json')
     end
     W.ddqn_weights_json=wp;
 end
+if isfield(cfg.workflow,'ddqn_admission_weights_json')
+    W.ddqn_admission_weights_json=string(cfg.workflow.ddqn_admission_weights_json);
+end
+if isfield(cfg.workflow,'ddqn_placement_weights_json')
+    W.ddqn_placement_weights_json=string(cfg.workflow.ddqn_placement_weights_json);
+end
 W.last_contact_change_t=zeros(1,numel(map));
 W.last_adv_rx_t=-inf(1,numel(map));
+W.next_adv_s=zeros(1,numel(map));
+W.adv_seq=zeros(1,numel(map));
 W.demo_log=struct('t_s',{},'action_idx',{},'obs',{},'mask',{});
 W.collect_demos=isfield(cfg.workflow,'collect_demos') && logical(cfg.workflow.collect_demos);
 W.ddqn_eps=0;
 if isfield(cfg.workflow,'ddqn_eps'), W.ddqn_eps=double(cfg.workflow.ddqn_eps); end
 W.ddqn_dagger_beta=0;
 if isfield(cfg.workflow,'ddqn_dagger_beta'), W.ddqn_dagger_beta=double(cfg.workflow.ddqn_dagger_beta); end
+W.ddqn_teacher_admission=false;
+if isfield(cfg.workflow,'ddqn_teacher_admission')
+    W.ddqn_teacher_admission=logical(cfg.workflow.ddqn_teacher_admission);
+end
+W.ddqn_high_active_cap=6;
+if isfield(cfg.workflow,'ddqn_high_active_cap')
+    W.ddqn_high_active_cap=double(cfg.workflow.ddqn_high_active_cap);
+end
 W.train_log=struct('obs',{},'action_idx',{},'reward',{},'next_obs',{},'done',{},'mask',{},'next_mask',{});
+W.train_pending_idx=0;
+W.train_pending_value=0;
 W.pending_tr=[];
 W.collect_transitions=isfield(cfg.workflow,'collect_transitions') && logical(cfg.workflow.collect_transitions);
 W.drop_reward_bonus=0.0;
@@ -204,6 +223,26 @@ for i=1:numel(W.bg_plan)
 end
 W.bg_plan=W.bg_plan(keep);
 W.now_s=nowS;
+
+% Helpers advertise their own queue state over the same Mode-2 application
+% queue used by commits and data.  The origin learns it only on successful RX.
+advPeriod=0.100;
+if isfield(W,'advertisement_period_s'), advPeriod=W.advertisement_period_s; end
+for helper=1:numel(W.cpu)
+    if helper==W.origin_id || nowS+1e-12<W.next_adv_s(helper), continue; end
+    S=W.cpu(helper); q=0; r=0;
+    if ~isempty(S.running), r=S.running.remaining; q=q+r; end
+    if ~isempty(S.queue)
+        for qi=1:numel(S.queue), q=q+S.queue(qi).remaining; end
+    end
+    W.adv_seq(helper)=W.adv_seq(helper)+1;
+    state=struct('nominal_cpu_hz',S.nominal_hz,'available_cpu_hz',S.available_hz, ...
+        'queued_cycles',q,'running_remaining_cycles',r,'admitted_pending_cycles',0, ...
+        'willingness',W.willingness(helper),'seq',W.adv_seq(helper));
+    msg=WorkflowControlProtocol('make_adv',helper,state,nowS*1000,W.advertisement_ttl_s*1000);
+    [W.pending_tx,~]=WorkflowControlProtocol('enqueue_ctrl',W.pending_tx,helper,msg,W.tb_bytes);
+    W.next_adv_s(helper)=nowS+advPeriod;
+end
 
 % Workflow arrivals
 while W.arrival_cursor<=numel(W.arrival_plan) && W.arrival_plan(W.arrival_cursor)<=nowS+1e-12
@@ -378,7 +417,8 @@ fclose(fid);
 % WiLab BC demos (obs/action/mask)
 if isfield(W,'demo_log') && ~isempty(W.demo_log)
     nd=numel(W.demo_log);
-    obsM=zeros(nd,16); maskM=zeros(nd,5); actV=zeros(nd,1); tV=zeros(nd,1);
+    nObs=numel(W.demo_log(1).obs);
+    obsM=zeros(nd,nObs); maskM=zeros(nd,5); actV=zeros(nd,1); tV=zeros(nd,1);
     for i=1:nd
         tV(i)=W.demo_log(i).t_s;
         actV(i)=W.demo_log(i).action_idx;
@@ -392,10 +432,19 @@ end
 % Online DDQN transitions from this WiLab episode
 if isfield(W,'train_log') && ~isempty(W.train_log)
     nt=numel(W.train_log);
-    % mark last transition done + terminal utility bonus
+    % Finalize a decision for which no later decision state was reached.
+    if isfield(W,'train_pending_idx') && W.train_pending_idx>0
+        pi=W.train_pending_idx;
+        [termObs,termMask,~]=WorkflowCausalObs(W);
+        W.train_log(pi).reward=totalUtility(W)-W.train_pending_value;
+        W.train_log(pi).next_obs=termObs(:)';
+        W.train_log(pi).next_mask=double(termMask(:))';
+    end
+    % Mark the episode boundary and retain a small terminal shaping signal.
     W.train_log(nt).done=1;
     W.train_log(nt).reward=W.train_log(nt).reward+0.05*totalValue;
-    obsM=zeros(nt,16); nobsM=zeros(nt,16); maskM=zeros(nt,5); nmaskM=zeros(nt,5);
+    nObs=numel(W.train_log(1).obs);
+    obsM=zeros(nt,nObs); nobsM=zeros(nt,nObs); maskM=zeros(nt,5); nmaskM=zeros(nt,5);
     actV=zeros(nt,1); rV=zeros(nt,1); dV=zeros(nt,1);
     for i=1:nt
         obsM(i,:)=W.train_log(i).obs; nobsM(i,:)=W.train_log(i).next_obs;
@@ -511,6 +560,23 @@ end
 function W=runSequentialUtilityPolicy(W,nowS,pol)
 % One admission/placement decision per loop so n_active / obs stay causal.
 for k=1:128
+    % Finalize the previous decision only when the simulator reaches the next
+    % decision state.  The former implementation finalized it immediately,
+    % before time/CPU/radio advanced, which discarded all delayed utility.
+    if pol=="workflow_causal_ddqn" && isfield(W,'collect_transitions') && W.collect_transitions ...
+            && isfield(W,'train_pending_idx') && W.train_pending_idx>0
+        [curObs,curMask,curSt]=WorkflowCausalObs(W);
+        % An idle bridge tick is not an MDP transition.  Keep the action
+        % pending so all utility accumulated before the next real decision is
+        % credited to it (or finalize it at the terminal state).
+        if ~isempty(curSt)
+            pi=W.train_pending_idx;
+            W.train_log(pi).reward=totalUtility(W)-W.train_pending_value;
+            W.train_log(pi).next_obs=curObs(:)';
+            W.train_log(pi).next_mask=double(curMask(:))';
+            W.train_pending_idx=0;
+        end
+    end
     if (pol=="workflow_drop_low" || (isfield(W,'collect_demos') && W.collect_demos))
         W=recordDemoIfDeciding(W,nowS,pol);
     end
@@ -543,7 +609,7 @@ for k=1:128
     W=applyActs(W,nowS,pol,acts);
     if pol=="workflow_causal_ddqn" && isfield(W,'collect_transitions') && W.collect_transitions && ~isempty(obs)
         [nobs,nmask,~]=WorkflowCausalObs(W);
-        r=totalUtility(W)-preValue;
+        r=0.0; % finalized at the next decision after simulated time advances
         % Optional DROP shaping (disable when training to beat DropLow)
         dropBonus=0.0;
         if isfield(W,'drop_reward_bonus'), dropBonus=double(W.drop_reward_bonus); end
@@ -553,6 +619,8 @@ for k=1:128
         done=false;
         W.train_log(end+1)=struct('obs',obs,'action_idx',aIdx,'reward',r, ...
             'next_obs',nobs(:)','done',double(done),'mask',mask,'next_mask',double(nmask(:))'); %#ok<AGROW>
+        W.train_pending_idx=numel(W.train_log);
+        W.train_pending_value=preValue;
     end
     if onlyRelease || sawStop, break; end
 end
@@ -570,12 +638,12 @@ end
 function W=recordDemoIfDeciding(W,nowS,pol)
 % Log causal obs + teacher action for WiLab BC.
 % Teachers: Drop-Low (PDP) or Drop-Low-Congest (Outcome-A admission rule).
-if pol~="workflow_drop_low" && pol~="workflow_drop_low_congest"
+if pol~="workflow_drop_low" && pol~="workflow_drop_low_congest" && pol~="workflow_causal_ddqn"
     return
 end
 [obs,mask,st]=WorkflowCausalObs(W);
 if isempty(st), return; end
-if pol=="workflow_drop_low_congest"
+if pol=="workflow_drop_low_congest" || pol=="workflow_causal_ddqn"
     acts=WorkflowPolicyDropLowCongest(W);
 else
     acts=WorkflowPolicyDropLow(W);
@@ -644,8 +712,9 @@ msg=struct('ctrl_type',string(meta.ctrl_type),'helper_id',meta.helper_id,'origin
     'workflow_id',meta.workflow_id,'stage_id',string(meta.stage_id),'cycles',meta.cycles, ...
     'deadline_ms',meta.deadline_ms,'input_bytes',meta.input_bytes,'nonce',meta.nonce, ...
     'generated_ms',meta.created_ms,'payload_bytes',meta.bytes,'commitment_id',meta.commitment_id, ...
-    'willingness',true,'seq',0,'nominal_cpu_hz',0,'available_cpu_hz',0,'queued_cycles',0, ...
-    'running_remaining_cycles',0,'admitted_pending_cycles',0,'ttl_ms',300, ...
+    'willingness',logical(meta.willingness),'seq',meta.seq,'nominal_cpu_hz',meta.nominal_cpu_hz, ...
+    'available_cpu_hz',meta.available_cpu_hz,'queued_cycles',meta.queued_cycles, ...
+    'running_remaining_cycles',meta.running_remaining_cycles,'admitted_pending_cycles',meta.admitted_pending_cycles,'ttl_ms',meta.ttl_ms, ...
     'expire_ms',meta.expire_ms,'reason',string(meta.reason));
 end
 
