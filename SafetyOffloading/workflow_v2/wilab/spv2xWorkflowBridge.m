@@ -73,7 +73,7 @@ W.advertisement_period_s=getf(cfg.workflow,'advertisement_period_s',0.10);
 if isfield(cfg.workflow,'fresh_bc_weights_json')
     W.fresh_bc_weights_json=string(cfg.workflow.fresh_bc_weights_json);
 elseif string(s.policy)=="workflow_fresh_ddqn"
-    W.fresh_bc_weights_json=fullfile(fileparts(mfilename('fullpath')),'..','drl','outputs','fresh_candidate_bc.json');
+    W.fresh_bc_weights_json=fullfile(fileparts(mfilename('fullpath')),'..','drl','outputs','fresh_ddqn.json');
 end
 if isfield(cfg.workflow,'ddqn_weights_json')
     wp=string(cfg.workflow.ddqn_weights_json);
