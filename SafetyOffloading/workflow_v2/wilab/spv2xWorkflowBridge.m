@@ -108,7 +108,10 @@ W.fresh_demo_log=struct('t_s',{},'candidate_features',{},'action_index',{},'kind
 % a controller no-op used to return from an empty action union, not an RL
 % action; retaining every tick would drown rare placement decisions in zero
 % reward transitions.
-W.fresh_trace=struct('t_s',{},'candidate_features',{},'action_index',{},'kind',{},'detail',{},'utility_before',{});
+W.fresh_trace=struct('t_s',{},'candidate_features',{},'action_index',{},'kind',{},'detail',{},'coverage_bin',{},'utility_before',{});
+W.fresh_exploration_mode=string(getf(cfg.workflow,'fresh_exploration_mode','none'));
+W.fresh_coverage_rate=double(getf(cfg.workflow,'fresh_coverage_rate',0));
+W.fresh_coverage_counts=zeros(1,800);
 W.ddqn_eps=0;
 if isfield(cfg.workflow,'ddqn_eps'), W.ddqn_eps=double(cfg.workflow.ddqn_eps); end
 W.ddqn_dagger_beta=0;
@@ -576,8 +579,11 @@ if pol=="workflow_fresh_ddqn" || pol=="workflow_fresh_bc"
         if c(ci).kind==a.kind && c(ci).workflow_id==a.workflow_id && c(ci).stage_id==a.stage_id && c(ci).helper_id==a.helper_id && c(ci).edge_id==a.edge_id, ix=ci; break; end
     end
     if ix>0 && a.kind~="STOP_PLAN"
+        coverageBin=WorkflowFreshCoverageBin(a,X(ix,:));
+        W.fresh_coverage_counts(coverageBin)=W.fresh_coverage_counts(coverageBin)+1;
         W.fresh_trace(end+1)=struct('t_s',nowS,'candidate_features',X,'action_index',ix, ...
-            'kind',a.kind,'detail',a.detail,'utility_before',totalUtility(W)); %#ok<AGROW>
+            'kind',a.kind,'detail',a.detail,'coverage_bin',coverageBin, ...
+            'utility_before',totalUtility(W)); %#ok<AGROW>
     end
     W=WorkflowActionValidator('apply',W,a);
     W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.kind), ...

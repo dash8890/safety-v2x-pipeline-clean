@@ -20,10 +20,25 @@ for i=1:numel(c)
 end
 legal=find(score>-1e5);
 eps=0; if isfield(W,'fresh_ddqn_epsilon'), eps=double(W.fresh_ddqn_epsilon); end
-if eps>0 && numel(legal)>1 && rand()<eps
+coverageRate=0;
+if isfield(W,'fresh_coverage_rate'), coverageRate=double(W.fresh_coverage_rate); end
+coverageMode=isfield(W,'fresh_exploration_mode') && string(W.fresh_exploration_mode)=="coverage";
+if coverageMode && coverageRate>0 && numel(legal)>1 && rand()<coverageRate
+    ix=coveragePick(W,c,X,legal); action=c(ix); action.detail="fresh_ddqn_coverage";
+elseif eps>0 && numel(legal)>1 && rand()<eps
     ix=legal(randi(numel(legal))); action=c(ix); action.detail="fresh_ddqn_explore";
 else
     [~,ix]=max(score); action=c(ix); action.detail="fresh_ddqn_greedy";
+end
+
+function ix=coveragePick(W,c,X,legal)
+counts=zeros(1,800);
+if isfield(W,'fresh_coverage_counts') && ~isempty(W.fresh_coverage_counts)
+    counts(1:min(numel(counts),numel(W.fresh_coverage_counts)))=W.fresh_coverage_counts(1:min(numel(counts),numel(W.fresh_coverage_counts)));
+end
+bins=zeros(size(legal));
+for i=1:numel(legal), bins(i)=WorkflowFreshCoverageBin(c(legal(i)),X(legal(i),:)); end
+w=1./(1+counts(bins)); w=w/sum(w); ix=legal(find(rand()<=cumsum(w),1));
 end
 end
 

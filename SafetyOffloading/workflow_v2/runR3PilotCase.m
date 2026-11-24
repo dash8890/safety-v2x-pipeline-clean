@@ -15,6 +15,8 @@ loadRho=NaN;
 baseCfgOverride="";
 simTimeOverride=NaN;
 freshEps=NaN;
+freshExplorationMode="";
+freshCoverageRate=NaN;
 for i=1:2:numel(varargin)
     switch string(varargin{i})
         case "radio_mode", radioMode=string(varargin{i+1});
@@ -22,6 +24,8 @@ for i=1:2:numel(varargin)
         case "config", baseCfgOverride=string(varargin{i+1});
         case "simulation_time", simTimeOverride=double(varargin{i+1});
         case "fresh_ddqn_epsilon", freshEps=double(varargin{i+1});
+        case "fresh_exploration_mode", freshExplorationMode=string(varargin{i+1});
+        case "fresh_coverage_rate", freshCoverageRate=double(varargin{i+1});
     end
 end
 
@@ -47,6 +51,8 @@ cfg=jsondecode(fileread(baseCfg));
 cfg.workflow.radio_mode=char(radioMode);
 if ~isnan(loadRho), cfg.workflow.cpu_offered_load=loadRho; end
 if ~isnan(freshEps), cfg.workflow.fresh_ddqn_epsilon=freshEps; end
+if strlength(freshExplorationMode)>0, cfg.workflow.fresh_exploration_mode=char(freshExplorationMode); end
+if ~isnan(freshCoverageRate), cfg.workflow.fresh_coverage_rate=freshCoverageRate; end
 cfgPath=fullfile(caseRoot,'config.json');
 fid=fopen(cfgPath,'w'); fprintf(fid,'%s',jsonencode(cfg,'PrettyPrint',true)); fclose(fid);
 
