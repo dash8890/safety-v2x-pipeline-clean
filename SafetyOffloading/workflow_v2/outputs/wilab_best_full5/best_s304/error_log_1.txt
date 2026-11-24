@@ -1,0 +1,16 @@
+Time goes back! Stop and check!
+Seed=304, timeNow=0.146000, timeEvent=0.146000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.146000, timeEvent=0.146000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.178000, timeEvent=0.178000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.178000, timeEvent=0.178000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.210000, timeEvent=0.210000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.210000, timeEvent=0.210000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.242000, timeEvent=0.242000
+Time goes back! Stop and check!
+Seed=304, timeNow=0.242000, timeEvent=0.242000

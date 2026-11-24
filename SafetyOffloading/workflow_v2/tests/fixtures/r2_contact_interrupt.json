@@ -1,0 +1,10 @@
+{
+  "id": "R2-06_helper_contact_interrupt",
+  "description": "CPU continues while disconnected; result waits for contact; must meet deadline",
+  "expected": {
+    "cpu_continues_while_disconnected": true,
+    "result_buffers_until_contact": true,
+    "success_requires_delivery_by_deadline": true
+  },
+  "status": "EXECUTABLE"
+}

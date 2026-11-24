@@ -1,0 +1,20 @@
+Time goes back! Stop and check!
+Seed=301, timeNow=0.146000, timeEvent=0.146000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.146000, timeEvent=0.146000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.178000, timeEvent=0.178000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.178000, timeEvent=0.178000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.210000, timeEvent=0.210000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.210000, timeEvent=0.210000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.215000, timeEvent=0.215000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.215000, timeEvent=0.215000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.290000, timeEvent=0.290000
+Time goes back! Stop and check!
+Seed=301, timeNow=0.290000, timeEvent=0.290000

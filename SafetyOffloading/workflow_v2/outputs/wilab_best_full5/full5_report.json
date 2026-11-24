@@ -1,0 +1,24 @@
+{
+  "weights": "C:\\Users\\dash\\Downloads\\NewProject\\safety-v2x-pipeline\\SafetyOffloading\\workflow_v2\\drl\\outputs\\ddqn_wilab_converged_best.weights.json",
+  "per_seed": {
+    "300": 72.0,
+    "301": 60.0,
+    "302": 48.0,
+    "303": 60.0,
+    "304": 72.0
+  },
+  "mean": 62.4,
+  "pdp_per_seed": {
+    "300": 48.0,
+    "301": 48.0,
+    "302": 24.0,
+    "303": 48.0,
+    "304": 60.0
+  },
+  "pdp_mean": 45.6,
+  "target": 52.0,
+  "beats_pdp": true,
+  "hits_target": true,
+  "admit_shield": true,
+  "mode": "parallel"
+}

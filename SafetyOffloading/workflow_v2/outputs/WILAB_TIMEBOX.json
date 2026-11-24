@@ -1,0 +1,8 @@
+{
+  "started": "2026-11-24T10:30:57",
+  "single_job": "train_wilab_convergence.py",
+  "protocol": "dagger_beat_init_full5",
+  "init_full5": 60.0,
+  "beat_target": 62.0,
+  "max_ep": 20
+}

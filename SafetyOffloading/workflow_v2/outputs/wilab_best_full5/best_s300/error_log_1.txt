@@ -1,0 +1,100 @@
+Time goes back! Stop and check!
+Seed=300, timeNow=0.146000, timeEvent=0.146000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.146000, timeEvent=0.146000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.178000, timeEvent=0.178000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.178000, timeEvent=0.178000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.290000, timeEvent=0.290000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.290000, timeEvent=0.290000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.357000, timeEvent=0.357000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.357000, timeEvent=0.357000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.367000, timeEvent=0.367000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.367000, timeEvent=0.367000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.372000, timeEvent=0.372000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.372000, timeEvent=0.372000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.382000, timeEvent=0.382000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.382000, timeEvent=0.382000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.392000, timeEvent=0.392000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.392000, timeEvent=0.392000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.397000, timeEvent=0.397000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.397000, timeEvent=0.397000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.407000, timeEvent=0.407000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.407000, timeEvent=0.407000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.417000, timeEvent=0.417000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.417000, timeEvent=0.417000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.427000, timeEvent=0.427000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.427000, timeEvent=0.427000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.437000, timeEvent=0.437000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.437000, timeEvent=0.437000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.447000, timeEvent=0.447000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.447000, timeEvent=0.447000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.457000, timeEvent=0.457000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.457000, timeEvent=0.457000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.467000, timeEvent=0.467000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.467000, timeEvent=0.467000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.477000, timeEvent=0.477000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.477000, timeEvent=0.477000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.487000, timeEvent=0.487000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.487000, timeEvent=0.487000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.492000, timeEvent=0.492000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.492000, timeEvent=0.492000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.502000, timeEvent=0.502000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.502000, timeEvent=0.502000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.507000, timeEvent=0.507000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.507000, timeEvent=0.507000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.517000, timeEvent=0.517000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.517000, timeEvent=0.517000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.522000, timeEvent=0.522000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.522000, timeEvent=0.522000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.537000, timeEvent=0.537000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.537000, timeEvent=0.537000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.547000, timeEvent=0.547000
+Time goes back! Stop and check!
+Seed=300, timeNow=0.547000, timeEvent=0.547000

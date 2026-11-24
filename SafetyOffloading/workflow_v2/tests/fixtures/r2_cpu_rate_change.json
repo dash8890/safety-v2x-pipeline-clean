@@ -1,0 +1,10 @@
+{
+  "id": "R1-06_cpu_capacity_change",
+  "description": "36 Mcycle job with 0.5→1.0 GHz at t=20 ms mid-service",
+  "job_cycles": 36000000,
+  "rate_hz_before": 500000000,
+  "rate_hz_after": 1000000000,
+  "change_at_ms": 20,
+  "expected_completion_ms": 46,
+  "status": "EXECUTABLE"
+}

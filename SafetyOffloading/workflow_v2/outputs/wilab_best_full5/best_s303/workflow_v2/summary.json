@@ -1,0 +1,12 @@
+{
+  "policy": "workflow_causal_ddqn",
+  "seed": 303,
+  "n_workflows": 20,
+  "n_success": 5,
+  "n_expired": 15,
+  "n_remote_stages_done": 12,
+  "total_value": 60,
+  "cpu_served": 2.3299999999999994E+8,
+  "radio_data_fragments": 47,
+  "radio_mode": "wilab_mode2"
+}

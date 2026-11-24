@@ -1,0 +1,149 @@
+# workflow_v2 pilot configuration — implementation contract v2.0
+# Engineering assumptions for R1–R3 validation; not literature-validated application measurements.
+project:
+  name: mobility_queue_aware_workflow_mode2
+  namespace: workflow_v2
+  contract_version: "2.0"
+  date: "2026-11-23"
+  base_repo: safety-v2x-pipeline/SafetyOffloading
+  preserve_legacy_mdp: true
+  output_root: workflow_v2/outputs
+
+radio:
+  profile_note: Todisco_et_al_2026_Mode2_WiLab_reference_adapted_to_verified_fork
+  carrier_frequency_ghz: 5.9
+  bandwidth_mhz: 20
+  subcarrier_spacing_khz: 30
+  slot_duration_ms: 0.5
+  subchannels: 5
+  resource_blocks_per_subchannel: 10
+  tx_power_dbm: 23
+  mcs_index: 12
+  max_transport_block_bytes: 1180  # R1_MEASURE_FROM_CODE — used as beaconSizeBytes today
+  sps_keep_probability: 0.8
+  reservation_interval_ms: 100
+  sensing_window_ms: 100
+  selection_window_ms: 20  # verified fork uses 40 slots * 0.5 ms, not unsupported 33-slot setting
+  candidate_fraction: 0.2
+  sensing_threshold_dbm: -126
+  dynamic_release_via_application_enqueue: R1_VERIFY
+  fragment_callback: R1_VERIFY
+  packet_size_overhead_bytes: R1_MEASURE_FROM_CODE
+  recompute_fragment_count_from_mac: true
+  no_direct_physical_slot_actions: true
+  no_application_harq_retransmit: true
+  safety_traffic:
+    enabled: true
+    packet_bytes: 300
+    generation_interval_ms: 100
+    include_in_radio_queue_and_interference: true
+
+mobility:
+  source: existing_wilab_highway_trace
+  observed_contact_by: received_beacons_and_radio_observations
+  true_contact_visibility_to_policy: false
+  deterministic_test_helper_count: 2
+  deterministic_contact_fixture: scripted_only_in_unit_tests
+  requirement: measure_helper_churn_in_R3
+
+helpers:
+  capability_fraction: R3_PREDECLARE_FROM_TRACE
+  advertised_state_period_ms: 100
+  advertisement_ttl_ms: 300
+  advertisement_overhead_bytes: R1_MEASURE_FROM_ENCODING
+  request_timeout_ms: 80
+  commitment_expiry_at_workflow_deadline: true
+  max_remote_attempts_per_stage: 2
+  max_admitted_work_s: 1.0
+  request_ack_nack_on_radio: true
+  helper_admission_true_queue_check: true
+  policy_true_queue_access: false
+
+compute:
+  cpu_servers_per_vehicle: 1
+  scheduler: nonpreemptive_edf
+  rate_model: constant_for_R2_then_piecewise_constant_in_R3
+  origin_nominal_cpu_hz: 500000000
+  helper_nominal_cpu_hz: [1500000000, 2000000000]
+  background_job_cycles: 12000000
+  background_job_deadline_ms: 1000
+  offered_load_regimes: [0.30, 0.80]
+  background_rate_formula: lambda_per_s=rho*nominal_cpu_hz/background_job_cycles
+  background_consume_real_service: true
+  subtract_additional_cpu_share: false
+
+workflow:
+  topology: diamond4
+  value: 1.0
+  relative_deadline_ms: 500
+  stages:
+    - {id: A, cycles: 9000000}
+    - {id: B, cycles: 12000000}
+    - {id: C, cycles: 12000000}
+    - {id: D, cycles: 3000000}
+  edges:
+    - {id: root_A, src: INPUT, dst: A, bytes: 1500}
+    - {id: A_B, src: A, dst: B, bytes: 900}
+    - {id: A_C, src: A, dst: C, bytes: 900}
+    - {id: B_D, src: B, dst: D, bytes: 600}
+    - {id: C_D, src: C, dst: D, bytes: 600}
+    - {id: D_return, src: D, dst: ORIGIN, bytes: 300}
+  no_replication: true
+  no_migration: true
+  forbid_early_stage_commitment: true
+  roots_input_reside_at_origin: true
+  arrival_trace_generator: seeded_poisson_for_R3
+  per_origin_arrival_rate_s: R3_FREEZE_BEFORE_PILOT
+
+controller:
+  max_idle_reconsideration_ms: 10
+  max_internal_actions_per_event: 12
+  allowed_actions:
+    - COMMIT_LOCAL
+    - REQUEST_REMOTE_COMMIT
+    - RELEASE_EDGE
+    - REJECT_WORKFLOW
+    - STOP_PLAN
+  physical_time_advances_on_internal_actions: false
+  hard_action_mask: causal_and_physical_only
+  observation_excludes:
+    - true_helper_cpu_queue
+    - future_contact_length
+    - future_radio_success
+    - future_background_arrivals
+    - future_safety_outcomes
+  reward: workflow_on_time_completion_value_only
+  reward_discount: 1.0
+
+r3_pilot:
+  scenarios:
+    cpu_offered_load: [0.30, 0.80]
+    contact_condition: [stable, measured_churn]
+    radio_condition: [lower_occupancy, moderate_occupancy]
+  initial_independent_seeds: [1, 2, 3]
+  algorithms:
+    - LOCAL_EDF
+    - STAGE_GREEDY
+    - QUEUE_AWARE
+    - MOBILITY_AWARE
+    - JOINT_PLACEMENT_RELEASE
+  run_privileged_small_oracle_subset_only: true
+  prefreeze_stochastic_arrival_rates_and_traces: true
+  no_tuning_after_pilot_results: true
+
+logging:
+  stable_join_identifiers: true
+  preserve_raw_units: true
+  record_observation_provenance: true
+  required:
+    - scenario.csv
+    - workflows.csv
+    - stages.csv
+    - edges.csv
+    - fragments.csv
+    - cpu_events.csv
+    - helpers.csv
+    - advertisements.csv
+    - commitments.csv
+    - decisions.csv
+    - safety.csv
