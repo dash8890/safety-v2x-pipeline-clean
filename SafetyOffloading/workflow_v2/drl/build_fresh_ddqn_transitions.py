@@ -14,6 +14,10 @@ def main():
     for source in SOURCES:
       for p in source.glob('**/fresh_trace.json'):
         d=json.loads(p.read_text()); dec=d['decisions']; terminal=float(d['terminal_utility'])
+        # STOP_PLAN is a simulator/controller no-op, not an executable
+        # scheduling decision. Older logs contain one at nearly every tick;
+        # exclude them before forming the physical decision sequence.
+        dec=[x for x in dec if x.get('kind') != 'STOP_PLAN']
         for i,x in enumerate(dec):
             cur=np.asarray(x['candidate_features'],np.float32)
             if cur.ndim==1: cur=cur[None,:]
