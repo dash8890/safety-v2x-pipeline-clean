@@ -1,7 +1,7 @@
 function X=WorkflowFreshCandidateFeatures(W,candidates)
 %WORKFLOWFRESHCANDIDATEFEATURES Causal features for fresh action candidates.
 % Rows align exactly with WorkflowCandidateBuilder's executable action union.
-n=numel(candidates); X=zeros(n,10);
+n=numel(candidates); X=zeros(n,15);
 originQ=queued(W.cpu(W.origin_id)); originHz=max(W.cpu(W.origin_id).available_hz,1);
 for i=1:n
     a=candidates(i); X(i,1:5)=double(a.kind==["COMMIT_LOCAL" "REQUEST_REMOTE_COMMIT" "RELEASE_EDGE" "REJECT_WORKFLOW" "STOP_PLAN"]);
@@ -14,6 +14,15 @@ for i=1:n
             X(i,10)=min(2,adv.available_cpu_hz/originHz);
         end
     end
+    X(i,11:14)=stageOneHot(a.stage_id);
+    X(i,15)=a.helper_id/max(numel(W.cpu),1);
+end
+
+function z=stageOneHot(stage)
+z=zeros(1,4);
+switch string(stage)
+    case "A", z(1)=1; case "B", z(2)=1; case "C", z(3)=1; case "D", z(4)=1;
+end
 end
 end
 function q=queued(S)
