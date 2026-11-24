@@ -6,12 +6,13 @@ from pathlib import Path
 import numpy as np
 
 ROOT=Path(__file__).resolve().parent.parent
-SRC=ROOT/'outputs'/'p4_bc_traces'
+SOURCES=[ROOT/'outputs'/'p4_bc_traces', ROOT/'outputs'/'p4_explore_traces']
 OUT=Path(__file__).resolve().parent/'outputs'/'fresh_ddqn_transitions.npz'
 
 def main():
     traces=[]
-    for p in SRC.glob('**/fresh_trace.json'):
+    for source in SOURCES:
+      for p in source.glob('**/fresh_trace.json'):
         d=json.loads(p.read_text()); dec=d['decisions']; terminal=float(d['terminal_utility'])
         for i,x in enumerate(dec):
             cur=np.asarray(x['candidate_features'],np.float32)
