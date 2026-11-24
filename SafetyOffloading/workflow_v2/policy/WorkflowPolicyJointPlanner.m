@@ -1,7 +1,6 @@
 function acts=WorkflowPolicyJointPlanner(W)
-%B4: Deterministic joint planner — place parallel B/C on distinct reachable
-% helpers when queues favor remote; HOLD return/input edges until contact and
-% slack allow; never early-commit D.
+%B4: Deployable joint planner. Helper state is read only from fresh received
+% HELPER_ADV messages; true helper queues are reserved for B5 diagnostics.
 acts=struct('type',{},'workflow_id',{},'stage_id',{},'helper_id',{},'edge_name',{},'detail',{});
 % Placement
 for i=1:numel(W.stages)
@@ -33,7 +32,8 @@ end
 end
 
 function [hid,why]=pickJoint(W,st,sid,priorActs)
-% Prefer distinct reachable helpers for B/C when helper CPU is faster.
+% Prefer distinct advertised helpers for B/C.  Origin queue is local state;
+% helper queue/capacity comes only from a fresh received advertisement.
 used=[];
 for i=1:numel(priorActs)
     if priorActs(i).type=="REQUEST_REMOTE", used(end+1)=priorActs(i).helper_id; %#ok<AGROW>
@@ -44,18 +44,29 @@ localT=queued(W.cpu(W.origin_id))/max(W.cpu(W.origin_id).available_hz,1) ...
     +st.required_cycles/max(W.cpu(W.origin_id).available_hz,1);
 for v=1:numel(W.cpu)
     if v==W.origin_id, continue; end
-    if ~W.contact(W.origin_id,v), continue; end
     if ismember(v,used), continue; end
-    t=queued(W.cpu(v))/max(W.cpu(v).available_hz,1) ...
-        +st.required_cycles/max(W.cpu(v).available_hz,1)+0.025;
+    a=receivedAdv(W,v); if isempty(a) || ~a.willingness, continue; end
+    t=(a.queued_cycles+a.admitted_pending_cycles+st.required_cycles)/ ...
+        max(a.available_cpu_hz,1)+0.050;
     % Bias toward remote when helper hz is higher (joint opportunity).
-    if W.cpu(v).available_hz>W.cpu(W.origin_id).available_hz
+    if a.available_cpu_hz>W.cpu(W.origin_id).available_hz
         t=t*0.85;
     end
     if t<best, best=t; hid=v; why=sprintf('joint_%s_v%d',sid,v); end
 end
+
 if hid~=W.origin_id && best>localT*1.5
     hid=W.origin_id; why="joint_local_fallback";
+end
+end
+
+function a=receivedAdv(W,helper)
+a=[]; newest=-inf;
+if ~isfield(W,'advertisements'), return; end
+for i=1:numel(W.advertisements)
+    x=W.advertisements(i);
+    if x.helper_id~=helper || W.now_s>x.rx_s+x.ttl_s+1e-12, continue; end
+    if x.rx_s>newest, a=x; newest=x.rx_s; end
 end
 end
 
