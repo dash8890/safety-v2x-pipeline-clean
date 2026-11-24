@@ -101,6 +101,7 @@ W.demo_log=struct('t_s',{},'action_idx',{},'obs',{},'mask',{});
 W.collect_demos=isfield(cfg.workflow,'collect_demos') && logical(cfg.workflow.collect_demos);
 W.collect_fresh_demos=isfield(cfg.workflow,'collect_fresh_demos') && logical(cfg.workflow.collect_fresh_demos);
 W.fresh_demo_log=struct('t_s',{},'candidate_features',{},'action_index',{},'kind',{});
+W.fresh_trace=struct('t_s',{},'candidate_features',{},'action_index',{},'kind',{},'utility_before',{});
 W.ddqn_eps=0;
 if isfield(cfg.workflow,'ddqn_eps'), W.ddqn_eps=double(cfg.workflow.ddqn_eps); end
 W.ddqn_dagger_beta=0;
@@ -431,6 +432,13 @@ if isfield(W,'fresh_demo_log') && ~isempty(W.fresh_demo_log)
     % the chosen row would make candidate-index BC impossible to train.
     fid=fopen(fullfile(folder,"fresh_demos.json"),'w'); fprintf(fid,'%s',jsonencode(W.fresh_demo_log)); fclose(fid);
 end
+if isfield(W,'fresh_trace') && ~isempty(W.fresh_trace)
+    % Terminal realized utility is retained with every causal decision; the
+    % Python DDQN trainer converts successive entries into TD transitions.
+    trace=W.fresh_trace; terminalUtility=totalUtility(W);
+    fid=fopen(fullfile(folder,"fresh_trace.json"),'w');
+    fprintf(fid,'%s',jsonencode(struct('terminal_utility',terminalUtility,'decisions',trace))); fclose(fid);
+end
 % WiLab BC demos (obs/action/mask)
 if isfield(W,'demo_log') && ~isempty(W.demo_log)
     nd=numel(W.demo_log);
@@ -555,7 +563,15 @@ function W=runController(W,nowS)
 W.now_s=nowS;
 pol=string(W.policy);
 if pol=="workflow_fresh_ddqn"
-    [a,~]=WorkflowPolicyFreshDDQN(W);
+    [a,X]=WorkflowPolicyFreshDDQN(W);
+    c=WorkflowCandidateBuilder(W); ix=0;
+    for ci=1:numel(c)
+        if c(ci).kind==a.kind && c(ci).workflow_id==a.workflow_id && c(ci).stage_id==a.stage_id && c(ci).helper_id==a.helper_id && c(ci).edge_id==a.edge_id, ix=ci; break; end
+    end
+    if ix>0
+        W.fresh_trace(end+1)=struct('t_s',nowS,'candidate_features',X,'action_index',ix, ...
+            'kind',a.kind,'utility_before',totalUtility(W)); %#ok<AGROW>
+    end
     W=WorkflowActionValidator('apply',W,a);
     W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.kind), ...
         'workflow_id',a.workflow_id,'detail',string(a.detail)); %#ok<AGROW>
