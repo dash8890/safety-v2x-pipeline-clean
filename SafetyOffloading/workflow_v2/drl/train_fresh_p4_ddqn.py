@@ -72,13 +72,15 @@ def main():
     parser.add_argument("--seed", type=int, default=23)
     parser.add_argument("--output", type=Path, default=OUT)
     parser.add_argument("--report", type=Path, default=REPORT)
+    parser.add_argument("--replay", type=Path, default=REPLAY)
+    parser.add_argument("--init", type=Path, default=None)
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
     torch.manual_seed(args.seed)
-    data = np.load(REPLAY, allow_pickle=True)["transitions"]
+    data = np.load(args.replay, allow_pickle=True)["transitions"]
     rare = np.asarray([bool(x["rare"]) for x in data])
-    q = Q(); load_state(q, BC)
+    q = Q(); load_state(q, args.init if args.init and args.init.is_file() else BC)
     target = Q(); target.load_state_dict(q.state_dict())
     opt = torch.optim.Adam(q.parameters(), lr=1e-4)
     priorities = np.ones(len(data), np.float64)

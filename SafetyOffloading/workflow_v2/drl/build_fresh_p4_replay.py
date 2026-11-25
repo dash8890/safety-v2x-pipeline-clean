@@ -2,12 +2,12 @@
 """Build n-step, coverage-labelled replay from fresh physical WiLab traces."""
 from __future__ import annotations
 import json
+import argparse
 from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCES = [ROOT / "outputs" / "p4_exploration_batches"]
-OUT = Path(__file__).resolve().parent / "outputs" / "fresh_p4_replay.npz"
+DEFAULT_OUT = Path(__file__).resolve().parent / "outputs" / "fresh_p4_replay.npz"
 GAMMA = 0.99
 N_STEP = 3
 
@@ -18,9 +18,13 @@ def decision_reward(decisions: list[dict], terminal: float, i: int) -> float:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", action="append", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUT)
+    args = parser.parse_args()
     replay = []
     manifests = []
-    for source in SOURCES:
+    for source in args.source:
         for path in sorted(source.glob("**/fresh_trace.json")):
             raw = json.loads(path.read_text())
             decisions = [d for d in raw["decisions"] if d.get("kind") != "STOP_PLAN"]
@@ -57,12 +61,12 @@ def main() -> None:
                 })
     if not replay:
         raise RuntimeError("no executable P4 exploration decisions found")
-    OUT.parent.mkdir(exist_ok=True)
-    np.savez_compressed(OUT, transitions=np.asarray(replay, dtype=object))
-    manifest = OUT.with_suffix(".manifest.json")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(args.output, transitions=np.asarray(replay, dtype=object))
+    manifest = args.output.with_suffix(".manifest.json")
     manifest.write_text(json.dumps({"n_step": N_STEP, "gamma": GAMMA,
                                     "traces": manifests, "transitions": len(replay)}, indent=2))
-    print(json.dumps({"transitions": len(replay), "output": str(OUT), "manifest": str(manifest)}))
+    print(json.dumps({"transitions": len(replay), "output": str(args.output), "manifest": str(manifest)}))
 
 
 if __name__ == "__main__":
