@@ -17,7 +17,10 @@ for path in sorted(EP.glob('rollout*/workflow_v2/summary.json')):
     rows.append({'rollout':number,'physical_utility':float(s['total_value']),
                  'n_success':int(s['n_success']),'n_expired':int(s['n_expired']),
                  'seed':int(s['seed'])})
-rows.sort(key=lambda x:x['episode'])
+rows.sort(key=lambda x:x['rollout'])
+for i,row in enumerate(rows):
+    values=[x['physical_utility'] for x in rows[max(0,i-9):i+1]]
+    row['rolling_10_physical_utility']=sum(values)/len(values)
 OUT.parent.mkdir(parents=True,exist_ok=True)
 OUT.write_text(json.dumps({'metric':'physical_utility_total_value','window':10,
                            'rollouts':rows},indent=2))

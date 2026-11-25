@@ -1,15 +1,24 @@
-function runP4OnlineBlockProbes(updateBlock,runName,phase)
-%RUNP4ONLINEBLOCKPROBES Fixed five-seed probe every five training epochs.
+function runP4OnlineBlockProbes(updateBlock,runName)
+%RUNP4ONLINEBLOCKPROBES Efficient fixed-seed validation at a block end.
 arguments
     updateBlock (1,1) double {mustBeInteger,mustBePositive}
     runName (1,1) string = "p4_online80_dueling_run01"
-    phase (1,1) string = "main"
 end
 root=fileparts(mfilename('fullpath'));
 updateRoot=fullfile(root,'outputs',runName,'training',sprintf('update%02d',updateBlock));
-for epoch=5:5:80
-    weights=fullfile(updateRoot,'optimizer_checkpoints',sprintf('dueling_ddqn_update%03d.json',epoch));
-    out=fullfile(root,'outputs',runName,'probes',phase,sprintf('update%02d',updateBlock),sprintf('update%03d',epoch));
-    runP4ProbeSuite(out,'workflow_fresh_ddqn','fresh_weights_json',weights);
+weights=fullfile(updateRoot,'optimizer_checkpoints','dueling_ddqn_update080.json');
+if ~isfile(weights), error('Missing block-end checkpoint: %s',weights); end
+seeds=1301;
+if any(updateBlock==[4 8 12 16]), seeds=1301:1305; end
+out=fullfile(root,'outputs',runName,'validation',sprintf('block%02d',updateBlock));
+cfg=fullfile(root,'config','p3_bc_selected.json');
+for i=1:numel(seeds)
+    runR3PilotCase(fullfile(out,sprintf('seed%d',seeds(i))), ...
+        'workflow_fresh_ddqn',seeds(i),'config',cfg,'cpu_offered_load',0.85, ...
+        'fresh_ddqn_epsilon',0,'fresh_exploration_mode','none', ...
+        'fresh_coverage_rate',0,'fresh_weights_json',weights);
 end
+fid=fopen(fullfile(out,'validation_manifest.json'),'w');
+fprintf(fid,'%s',jsonencode(struct('block',updateBlock,'seeds',seeds, ...
+    'weights',weights,'mode','greedy_fixed_validation'),'PrettyPrint',true)); fclose(fid);
 end

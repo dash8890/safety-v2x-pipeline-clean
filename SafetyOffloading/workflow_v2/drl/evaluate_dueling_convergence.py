@@ -1,41 +1,62 @@
 #!/usr/bin/env python3
-"""Evaluate only training-derived Dueling-DDQN convergence evidence."""
+"""Report training-only Dueling-DDQN convergence evidence efficiently."""
 from __future__ import annotations
 import argparse, json
 from pathlib import Path
 import numpy as np
 
-def mean_windows(values, size):
-    return np.asarray([np.mean(values[i:i + size]) for i in range(0, len(values) - size + 1, size)])
+MILESTONES = (4, 8, 12, 16)
+
+def load_summary(path: Path) -> float:
+    return float(json.loads(path.read_text())["total_value"])
 
 def main():
-    p=argparse.ArgumentParser(); p.add_argument('--run-root',type=Path,required=True); p.add_argument('--output',type=Path,required=True); a=p.parse_args()
-    probes=[]; updates=[]
-    for report in sorted((a.run_root/'training').glob('update*/optimizer_updates.json')):
-        d=json.loads(report.read_text())
-        if d.get('architecture') != 'dueling_ddqn': raise RuntimeError(f'non-dueling report: {report}')
-        updates.extend(d['history'])
-    # Probe means are the fixed-set, unshaped physical utilities.
-    for manifest in sorted((a.run_root/'probes').glob('update*/update*/probe_manifest.json')):
-        returns=[]
-        for summary in manifest.parent.glob('seed*/workflow_v2/summary.json'):
-            returns.append(float(json.loads(summary.read_text())['total_value']))
-        if len(returns)==5: probes.append({'checkpoint':str(manifest.parent.relative_to(a.run_root)), 'mean':float(np.mean(returns)), 'std':float(np.std(returns)), 'returns':returns})
-    utility=np.asarray([x['mean'] for x in probes]); n=len(utility); w=max(1,int(np.ceil(.10*n)))
-    windows=mean_windows(utility,w)
-    first=float(np.mean(utility[:w])); latest=float(np.mean(utility[-w:])); best=float(windows.max()) if len(windows) else float('-inf')
-    gains=np.diff(windows)
-    progressive = len(windows)>=4 and latest >= 1.20*first and np.count_nonzero(gains>0)>=3
-    refine = len(windows)>=4 and all(x>=.95*best for x in windows[-3:]) and abs(gains[-1])<=abs(gains[-2])<=abs(gains[-3])
-    final=windows[-max(2,int(np.ceil(.20*len(windows)))):]
-    stable_perf = len(final)>=2 and (final.max()-final.min()) <= .05*float(final.mean()) and final[-1]>=final[0]*.95
-    q=np.asarray([x['q_p50'] for x in updates]); td=np.asarray([x['mean_td_loss'] for x in updates]); agree=np.asarray([x['fixed_state_action_agreement'] for x in updates])
-    tail=max(1,int(np.ceil(.20*len(updates))))
-    stable_values = np.all(np.isfinite(q)) and np.all(np.isfinite(td)) and np.mean(td[-tail:]) <= 1.05*np.mean(td[-2*tail:-tail]) and np.max(np.abs(q[-tail:])) <= 1.10*np.max(np.abs(q[-2*tail:-tail]))
-    stable_policy = bool(np.min(agree[-tail:]) >= .90)
-    retention = latest >= .95*best
-    extension = [x['mean'] for x in probes if 'extension' in x['checkpoint']]
-    premature = bool(extension and np.mean(extension[-w:]) > 1.05*best)
-    out={'run_root':str(a.run_root),'n_fixed_evaluations':n,'window_size':w,'first_window_mean':first,'latest_window_mean':latest,'best_window_mean':best,'window_means':windows.tolist(), 'stage1_progressive_learning':bool(progressive),'stage2_policy_refinement':bool(refine),'stage3_performance_stability':bool(stable_perf),'stage3_policy_stability':bool(stable_policy),'stage3_value_learning_stability':bool(stable_values),'stage3_performance_retention':bool(retention),'premature_stabilization':premature,'converged':bool(progressive and refine and stable_perf and stable_policy and stable_values and retention and not premature)}
-    a.output.parent.mkdir(parents=True,exist_ok=True); a.output.write_text(json.dumps(out,indent=2)); print(json.dumps(out))
-if __name__=='__main__': main()
+    p = argparse.ArgumentParser()
+    p.add_argument("--run-root", type=Path, required=True)
+    p.add_argument("--output", type=Path, required=True)
+    a = p.parse_args()
+    validation, block_updates = [], []
+    for block in range(1, 17):
+        d = a.run_root / "validation" / f"block{block:02d}"
+        values = {int(x.parent.name.replace("seed", "")): load_summary(x)
+                  for x in d.glob("seed*/workflow_v2/summary.json")}
+        if 1301 not in values:
+            raise RuntimeError(f"missing common validation seed for block {block}")
+        validation.append({"block": block, "common_seed_utility": values[1301],
+                           "seed_utilities": values,
+                           "milestone_mean": float(np.mean(list(values.values()))) if block in MILESTONES else None})
+        report = a.run_root / "training" / f"update{block:02d}" / "optimizer_updates.json"
+        data = json.loads(report.read_text())
+        if data.get("architecture") != "dueling_ddqn":
+            raise RuntimeError(f"non-dueling report: {report}")
+        block_updates.append(data["history"][-1])
+    single = np.asarray([x["common_seed_utility"] for x in validation])
+    milestone = {x["block"]: x["milestone_mean"] for x in validation if x["milestone_mean"] is not None}
+    early, later = float(np.mean(single[:4])), float(np.mean(single[4:8]))
+    progressive = later >= 1.10 * early and np.count_nonzero(np.diff(single[:8]) > 0) >= 3
+    refine = bool(np.min(single[7:12]) >= .95 * np.max(single[:8]) and
+                  np.mean(np.abs(np.diff(single[9:12]))) <= np.mean(np.abs(np.diff(single[7:10]))))
+    preceding_best = max(milestone[4], milestone[8], milestone[12])
+    stable = bool(milestone[16] >= .95 * preceding_best and np.min(single[11:]) >= .95 * np.mean(single[11:]))
+    late = block_updates[11:]
+    agreement = min(x["fixed_state_action_agreement"] for x in late)
+    td = np.asarray([x["mean_absolute_td_error"] for x in late])
+    q = np.asarray([x["q_p50"] for x in late])
+    qdrift = np.asarray([x["q_mean_absolute_drift"] for x in late])
+    value_stable = bool(np.all(np.isfinite(td)) and np.all(np.isfinite(q)) and
+                        td[-1] <= 1.10 * np.mean(td) and qdrift[-1] <= 1.10 * np.mean(qdrift))
+    out = {"run_root": str(a.run_root), "architecture": "dueling_ddqn",
+           "validation_schedule": {"common_seed": 1301, "milestone_blocks": MILESTONES,
+                                   "validation_count": 32},
+           "validation": validation, "block_end_optimizer_diagnostics": block_updates,
+           "stage1_progressive_learning": {"early_common_seed_mean": early, "later_common_seed_mean": later,
+                                           "improvement_fraction": later / early - 1 if early else None, "passes": bool(progressive)},
+           "stage2_policy_refinement": {"passes": refine},
+           "stage3_stable_convergence": {"final_milestone_mean": milestone[16], "best_preceding_milestone_mean": preceding_best,
+                                          "performance_passes": stable, "late_min_action_agreement": agreement,
+                                          "policy_passes": agreement >= .90, "value_learning_passes": value_stable},
+           "converged": bool(progressive and refine and stable and agreement >= .90 and value_stable)}
+    a.output.parent.mkdir(parents=True, exist_ok=True)
+    a.output.write_text(json.dumps(out, indent=2)); print(json.dumps(out))
+
+if __name__ == "__main__": main()

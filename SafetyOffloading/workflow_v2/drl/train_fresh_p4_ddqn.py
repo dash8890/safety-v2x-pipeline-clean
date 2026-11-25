@@ -87,7 +87,7 @@ def write_model(path: Path, model: DuelingQ, source: str) -> None:
                                 "source": source}))
 
 
-def fixed_state_metrics(model: DuelingQ, fixed_states, previous_actions):
+def fixed_state_metrics(model: DuelingQ, fixed_states, previous_actions, previous_q):
     q_values, values, advantages, actions = [], [], [], []
     with torch.no_grad():
         for x in fixed_states:
@@ -96,12 +96,14 @@ def fixed_state_metrics(model: DuelingQ, fixed_states, previous_actions):
             q_values.extend(q.tolist()); values.extend(v.tolist()); advantages.extend(a.tolist())
             actions.append(int(q.argmax()))
     agreement = 1.0 if previous_actions is None else float(np.mean(np.asarray(actions) == previous_actions))
+    q_values = np.asarray(q_values)
+    drift = 0.0 if previous_q is None else float(np.mean(np.abs(q_values - previous_q)))
     return ({"q_p05": float(np.quantile(q_values, .05)), "q_p50": float(np.median(q_values)),
              "q_p95": float(np.quantile(q_values, .95)), "value_p05": float(np.quantile(values, .05)),
              "value_p50": float(np.median(values)), "value_p95": float(np.quantile(values, .95)),
              "advantage_p05": float(np.quantile(advantages, .05)), "advantage_p50": float(np.median(advantages)),
-             "advantage_p95": float(np.quantile(advantages, .95)), "fixed_state_action_agreement": agreement},
-            np.asarray(actions))
+             "advantage_p95": float(np.quantile(advantages, .95)), "fixed_state_action_agreement": agreement,
+             "q_mean_absolute_drift": drift}, np.asarray(actions), q_values)
 
 
 def main():
@@ -129,8 +131,10 @@ def main():
     history = []
     fixed_states = [torch.tensor(row["cur"]) for row in data[:min(128, len(data))]]
     previous_actions = None
+    previous_q = None
     for epoch in range(args.epochs):
         losses = []
+        abs_td_errors = []
         sampled_rewards = []
         for idx in draw(priorities, rare, max(512, len(data) // 2), rng):
             row = data[idx]
@@ -148,6 +152,7 @@ def main():
             opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(q.parameters(), 5); opt.step()
             priorities[idx] = abs(float(td.detach())) + 1e-3
             losses.append(float(loss.detach()))
+            abs_td_errors.append(abs(float(td.detach())))
         # BC retention decays: it initializes viable behavior but does not
         # prevent exploration-supported improvement.
         retention = 0.50 * max(0, 1 - epoch / args.epochs)
@@ -156,10 +161,11 @@ def main():
             opt.zero_grad(); loss.backward(); opt.step()
         if (epoch + 1) % 10 == 0:
             target.load_state_dict(q.state_dict())
-        metrics, previous_actions = fixed_state_metrics(q, fixed_states, previous_actions)
+        metrics, previous_actions, previous_q = fixed_state_metrics(q, fixed_states, previous_actions, previous_q)
         history.append({"optimizer_update": epoch + 1, "mean_td_loss": float(np.mean(losses)),
-                        "td_error_p50": float(np.median(np.sqrt(np.maximum(0, 2 * np.asarray(losses))))),
-                        "td_error_p95": float(np.quantile(np.sqrt(np.maximum(0, 2 * np.asarray(losses))), .95)),
+                        "mean_absolute_td_error": float(np.mean(abs_td_errors)),
+                        "td_error_p50": float(np.median(abs_td_errors)),
+                        "td_error_p95": float(np.quantile(abs_td_errors, .95)),
                         "mean_sampled_reward": float(np.mean(sampled_rewards)),
                         "sum_sampled_reward": float(np.sum(sampled_rewards)),
                         "priority_p50": float(np.median(priorities)),
