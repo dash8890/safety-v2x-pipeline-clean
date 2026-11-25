@@ -70,6 +70,8 @@ def main():
                         default=ROOT / "outputs" / "p4_checkpoints")
     parser.add_argument("--checkpoint-every", type=int, default=20)
     parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument("--output", type=Path, default=OUT)
+    parser.add_argument("--report", type=Path, default=REPORT)
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
@@ -84,8 +86,10 @@ def main():
     history = []
     for epoch in range(80):
         losses = []
+        sampled_rewards = []
         for idx in draw(priorities, rare, max(512, len(data) // 2), rng):
             row = data[idx]
+            sampled_rewards.append(float(row["reward"]))
             cur = torch.tensor(row["cur"]); nxt = torch.tensor(row["next"])
             qa = q(cur)[int(row["action"])]
             with torch.no_grad():
@@ -108,6 +112,8 @@ def main():
         if (epoch + 1) % 10 == 0:
             target.load_state_dict(q.state_dict())
         history.append({"epoch": epoch + 1, "mean_td_loss": float(np.mean(losses)),
+                        "mean_sampled_reward": float(np.mean(sampled_rewards)),
+                        "sum_sampled_reward": float(np.sum(sampled_rewards)),
                         "priority_p50": float(np.median(priorities)),
                         "priority_p95": float(np.quantile(priorities, .95)),
                         "bc_retention": retention})
@@ -115,8 +121,8 @@ def main():
         if (epoch + 1) % args.checkpoint_every == 0:
             write_model(args.checkpoint_dir / f"fresh_ddqn_epoch{epoch + 1:03d}.json", q,
                         "fresh_p4_nstep_prioritized_ddqn_checkpoint")
-    write_model(OUT, q, "fresh_p4_nstep_prioritized_ddqn")
-    REPORT.write_text(json.dumps({"seed": args.seed, "history": history, "transitions": len(data),
+    write_model(args.output, q, "fresh_p4_nstep_prioritized_ddqn")
+    args.report.write_text(json.dumps({"seed": args.seed, "history": history, "transitions": len(data),
                                   "rare_transitions": int(rare.sum())}, indent=2))
 
 
