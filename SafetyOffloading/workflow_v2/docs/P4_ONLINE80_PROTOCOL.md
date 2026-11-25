@@ -2,6 +2,14 @@
 
 **Status:** finalized; do not start until explicitly authorized.
 
+## Architecture identity gate
+
+This protocol requires a **Dueling Double DQN** convergence claim. Before any
+run is started, the saved model and trainer must be audited for separate
+state-value and action-advantage streams. The current 15 -> 96 -> 1 candidate
+scorer is non-dueling; it must not be called Dueling DDQN or used as evidence
+for that claim. An architecture change requires separate explicit approval.
+
 ## Terms
 
 | Term | Meaning | Produces a physical utility value? |
@@ -68,3 +76,52 @@ replay-sample reward, expiry penalty, optimizer-step loss, or probe mean.
   block, epoch checkpoint, and fixed probe seed.
 
 No artifact is deleted, overwritten, or relabeled during the run.
+
+## Convergence evidence required before any final comparison
+
+Baseline comparisons are not convergence evidence. They are deferred until
+after the following evidence has been produced from the learning process.
+
+### Per-rollout and per-epoch records
+
+For every physical training rollout, retain its utility, completion count,
+expiry count, action histogram, and full raw WiLab artifacts. For every
+training epoch, retain TD-error statistics, fixed-state Q-value quantiles,
+value/advantage statistics for a Dueling model, policy-action agreement on a
+fixed state set, model checkpoint, and replay manifest.
+
+### Fixed checkpoint probes
+
+Every fifth training epoch, evaluate the frozen checkpoint on the same five
+probe seeds. Save individual-seed returns, their mean, standard deviation,
+safety metrics, action histogram, and Q-value quantiles. These are the
+checkpoint learning curve; do not mix them with rollout rewards.
+
+### Three required learning stages
+
+1. **Progressive learning:** the trailing ten-rollout mean and fixed-probe
+   mean show sustained improvement over the first two policy-update blocks.
+   The improvement must persist in all independent runs, not appear in one
+   isolated seed.
+2. **Policy refinement:** subsequent checkpoint gains remain positive but
+   shrink. At least three consecutive fifth-epoch checkpoints must show
+   gains no larger than 5% of the current best probe mean while retaining the
+   learned action distribution and satisfying the safety gate.
+3. **Stable convergence:** at least four consecutive fifth-epoch checkpoints
+   remain within +/-5% of their mean probe utility; fixed-state greedy-action
+   agreement is at least 98%; TD-error and Q-value quantiles have no material
+   trend or explosion; and no safety metric deteriorates.
+
+### Independent-run and continued-learning tests
+
+Run three independent training trajectories with distinct initialization and
+rollout seeds under this identical protocol. After each reaches its candidate
+plateau, continue its training for 40 additional epochs and collect one
+additional five-rollout exploration block. A trajectory is rejected as
+premature stabilization if either extension improves the fixed-probe mean by
+more than 5%, changes more than 2% of fixed-state greedy actions, or produces
+a materially higher-quality policy in another independent run.
+
+Only after all three trajectories pass these tests may a final policy be
+frozen. DropLow, BC-only, and external-baseline comparisons occur after this
+gate and establish relative performance only.
