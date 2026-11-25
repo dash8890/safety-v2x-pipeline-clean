@@ -1,62 +1,54 @@
 #!/usr/bin/env python3
-"""Report training-only Dueling-DDQN convergence evidence efficiently."""
+"""Evaluate the mandated four-milestone, matched-scenario convergence evidence."""
 from __future__ import annotations
-import argparse, json
+import argparse, json, math
 from pathlib import Path
 import numpy as np
 
 MILESTONES = (4, 8, 12, 16)
 
-def load_summary(path: Path) -> float:
+def utility(path: Path) -> float:
     return float(json.loads(path.read_text())["total_value"])
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--run-root", type=Path, required=True)
-    p.add_argument("--output", type=Path, required=True)
-    a = p.parse_args()
-    validation, block_updates = [], []
-    for block in range(1, 17):
-        d = a.run_root / "validation" / f"block{block:02d}"
-        values = {int(x.parent.name.replace("seed", "")): load_summary(x)
-                  for x in d.glob("seed*/workflow_v2/summary.json")}
-        if 1301 not in values:
-            raise RuntimeError(f"missing common validation seed for block {block}")
-        validation.append({"block": block, "common_seed_utility": values[1301],
-                           "seed_utilities": values,
-                           "milestone_mean": float(np.mean(list(values.values()))) if block in MILESTONES else None})
-        report = a.run_root / "training" / f"update{block:02d}" / "optimizer_updates.json"
-        data = json.loads(report.read_text())
-        if data.get("architecture") != "dueling_ddqn":
-            raise RuntimeError(f"non-dueling report: {report}")
-        block_updates.append(data["history"][-1])
-    single = np.asarray([x["common_seed_utility"] for x in validation])
-    milestone = {x["block"]: x["milestone_mean"] for x in validation if x["milestone_mean"] is not None}
-    early, later = float(np.mean(single[:4])), float(np.mean(single[4:8]))
-    progressive = later >= 1.10 * early and np.count_nonzero(np.diff(single[:8]) > 0) >= 3
-    refine = bool(np.min(single[7:12]) >= .95 * np.max(single[:8]) and
-                  np.mean(np.abs(np.diff(single[9:12]))) <= np.mean(np.abs(np.diff(single[7:10]))))
-    preceding_best = max(milestone[4], milestone[8], milestone[12])
-    stable = bool(milestone[16] >= .95 * preceding_best and np.min(single[11:]) >= .95 * np.mean(single[11:]))
-    late = block_updates[11:]
-    agreement = min(x["fixed_state_action_agreement"] for x in late)
-    td = np.asarray([x["mean_absolute_td_error"] for x in late])
-    q = np.asarray([x["q_p50"] for x in late])
-    qdrift = np.asarray([x["q_mean_absolute_drift"] for x in late])
-    value_stable = bool(np.all(np.isfinite(td)) and np.all(np.isfinite(q)) and
-                        td[-1] <= 1.10 * np.mean(td) and qdrift[-1] <= 1.10 * np.mean(qdrift))
-    out = {"run_root": str(a.run_root), "architecture": "dueling_ddqn",
-           "validation_schedule": {"common_seed": 1301, "milestone_blocks": MILESTONES,
-                                   "validation_count": 32},
-           "validation": validation, "block_end_optimizer_diagnostics": block_updates,
-           "stage1_progressive_learning": {"early_common_seed_mean": early, "later_common_seed_mean": later,
-                                           "improvement_fraction": later / early - 1 if early else None, "passes": bool(progressive)},
-           "stage2_policy_refinement": {"passes": refine},
-           "stage3_stable_convergence": {"final_milestone_mean": milestone[16], "best_preceding_milestone_mean": preceding_best,
-                                          "performance_passes": stable, "late_min_action_agreement": agreement,
-                                          "policy_passes": agreement >= .90, "value_learning_passes": value_stable},
-           "converged": bool(progressive and refine and stable and agreement >= .90 and value_stable)}
-    a.output.parent.mkdir(parents=True, exist_ok=True)
-    a.output.write_text(json.dumps(out, indent=2)); print(json.dumps(out))
+def paired_change(before: np.ndarray, after: np.ndarray) -> dict:
+    change = after - before
+    mean = float(change.mean()); se = float(change.std(ddof=1) / math.sqrt(len(change)))
+    # Prespecified two-sided 95% t interval for n=5 paired scenarios, df=4.
+    lo, hi = mean - 2.776 * se, mean + 2.776 * se
+    return {"per_scenario": change.tolist(), "mean": mean, "std": float(change.std(ddof=1)),
+            "ci95": [lo, hi], "positive_scenarios": int(np.count_nonzero(change > 0))}
 
-if __name__ == "__main__": main()
+def main():
+    p=argparse.ArgumentParser(); p.add_argument("--run-root",type=Path,required=True); p.add_argument("--output",type=Path,required=True); a=p.parse_args()
+    values, ends = {}, {}
+    for block in MILESTONES:
+        root=a.run_root/"validation"/f"block{block:02d}"
+        vals=[]
+        for seed in range(1301,1306):
+            vals.append(utility(root/f"seed{seed}"/"workflow_v2"/"summary.json"))
+        values[block]=np.asarray(vals,float)
+        report=json.loads((a.run_root/"training"/f"update{block:02d}"/"optimizer_updates.json").read_text())
+        if report.get("architecture") != "dueling_ddqn": raise RuntimeError("non-dueling training report")
+        ends[block]=report["history"][-1]
+    m12=paired_change(values[4],values[8]); m23=paired_change(values[8],values[12]); m34=paired_change(values[12],values[16])
+    mean_m1=float(values[4].mean()); mean_m2=float(values[8].mean()); margin=.05*abs(float(values[12].mean()))
+    stage1=mean_m2 >= 1.20*mean_m1 and m12["positive_scenarios"] >= 4
+    stage2=values[12].mean() >= .95*values[8].mean()
+    # Equivalence is established only if the complete paired 95% CI lies
+    # inside the prespecified +/-5% M3 utility margin.
+    equivalence = m34["ci95"][0] >= -margin and m34["ci95"][1] <= margin
+    action_ok=ends[16]["fixed_state_action_agreement"] >= .90
+    td_ok=ends[16]["mean_absolute_td_error"] <= 1.10*ends[12]["mean_absolute_td_error"]
+    q_ok=ends[16]["q_mean_absolute_drift"] <= 1.10*ends[12]["q_mean_absolute_drift"]
+    out={"architecture":"dueling_ddqn","run_root":str(a.run_root),"validation_seeds":[1301,1302,1303,1304,1305],
+         "milestone_utilities":{str(k):values[k].tolist() for k in MILESTONES},
+         "milestone_means":{str(k):float(values[k].mean()) for k in MILESTONES},
+         "paired_changes":{"M1_to_M2":m12,"M2_to_M3":m23,"M3_to_M4":m34},
+         "stage1_progressive_learning":{"passes":bool(stage1),"target_improvement":.20},
+         "stage2_policy_refinement":{"passes":bool(stage2),"retention_target":.95},
+         "stage3_stable_convergence":{"paired_equivalence_margin":margin,"paired_equivalence_passes":bool(equivalence),"final_action_agreement":ends[16]["fixed_state_action_agreement"],"action_agreement_passes":bool(action_ok),"td_error_stable":bool(td_ok),"q_drift_stable":bool(q_ok)},
+         "block_end_diagnostics":{str(k):ends[k] for k in MILESTONES},
+         "converged":bool(stage1 and stage2 and equivalence and action_ok and td_ok and q_ok)}
+    a.output.parent.mkdir(parents=True,exist_ok=True); a.output.write_text(json.dumps(out,indent=2)); print(json.dumps(out))
+
+if __name__=="__main__": main()

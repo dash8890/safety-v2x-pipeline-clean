@@ -1,62 +1,52 @@
-# Efficient WiLab Dueling-DDQN convergence protocol
+# Mandatory WiLab Dueling-DDQN convergence experiment
 
-## Fixed training budget
+## Preserved training budget
 
-Each independent run has 16 main blocks. Each main block performs five physical
-WiLab training rollouts and then 80 Python replay-learning updates. The main
-budget is therefore 80 rollouts and 1,280 optimizer updates. Eight additional
-physical rollouts and 128 optimizer updates form the predeclared continuation,
-for a total of 88 training simulations.
+Each of five independent runs retains 88 full packet-level WiLab training
+rollouts and 1,280 optimizer updates. Sixteen main blocks contain five
+rollouts and 80 updates each. The predeclared continuation contains eight
+rollouts and 128 updates. Episode duration, Mode-2 radio model, replay, and
+exploration configuration are unchanged.
 
-`rollout` means one physical WiLab simulation. `optimizer update` means one
-Python learning pass. Neither an update nor replay-derived reward is a physical
-rollout or validation result.
+Every main-block end policy is checkpointed. Each optimizer update records TD
+error, Q/value/advantage statistics, Q drift, greedy-action agreement on cached
+causal observations, and replay-derived training diagnostics. Each rollout
+records unshaped physical utility and its trailing-ten-rollout mean. These
+records launch no extra WiLab simulation.
 
-## Validation schedule
+## Matched validation milestones
 
-Only the block-end checkpoint is saved for each of the 16 main blocks. It is
-evaluated greedily on common fixed seed 1301. At blocks 4, 8, 12, and 16, the
-same checkpoint is also evaluated on seeds 1302–1305; seed 1301 is reused and
-is never repeated. Thus every run has 16 common-seed validations and 16
-additional milestone validations: 32 total validation simulations.
+Full packet-level fixed validation is performed only at main blocks 4, 8, 12,
+and 16, corresponding to optimizer updates 320, 640, 960, and 1,280. At every
+milestone, the identical five matched validation seeds 1301–1305 are evaluated
+greedily. They are disjoint from training and held-out testing seeds.
 
-The continuation produces no automatic validation. A supplementary evaluation
-is allowed only to resolve a documented ambiguous final plateau. Held-out test
-seeds are separate from all training and validation seeds.
+Thus every run uses 88 training plus 20 validation simulations: **108 total**.
+The final held-out test is separate. Supplementary validation is permitted only
+to resolve a documented ambiguous equivalence result; training is never rerun
+solely to increase validation replication.
 
-## Evidence retained without extra WiLab work
+## Convergence evidence
 
-Every optimizer update records mean absolute TD error, TD-error quantiles,
-fixed-causal-observation Q/value/advantage quantiles, Q drift, and greedy
-action agreement with the preceding update. Every physical rollout saves its
-unshaped utility and trailing ten-rollout mean. These diagnostics use saved
-replay and cached causal observations; they launch no physical simulation.
+- **Stage I, M1→M2:** target at least 20% matched-scenario mean utility
+  improvement; report all five paired changes and the intervening training
+  return trajectory. The improvement must not be confined to one scenario.
+- **Stage II, M2→M3:** retain at least 95% of M2 mean utility while policy
+  changes, TD-error variability, and Q drift stabilize; inspect decisions to
+  distinguish better scheduling from increased rejection.
+- **Stage III, M3→M4:** test paired utility equivalence against a prespecified
+  ±5% M3-mean margin. The 95% paired t confidence interval must lie within the
+  margin, final greedy-action agreement must be at least 90%, and TD/Q metrics
+  must show no late upward drift or deterioration.
 
-## Convergence interpretation
+The five independent runs—not optimizer updates—establish reproducibility.
+The acceptance target is four of five showing all three stages. Baseline
+comparisons are explicitly separate from convergence evidence.
 
-The common-seed trajectory provides the dense block-level learning trajectory.
-The four five-seed milestones corroborate, but do not replace, its pattern.
+## Runtime and execution
 
-1. **Progressive learning:** compare early and later checkpoints in blocks
-   1–8; record whether the later common-seed mean improves by 10% and whether
-   three checkpoint-to-checkpoint improvements occur. Corroborate with blocks
-   4 and 8 five-seed means. A single seed alone is not a statistical claim.
-2. **Policy refinement:** inspect blocks 8–12 for maintained or improved
-   utility and shrinking trajectory changes, with TD-error variability and
-   Q-drift stable or declining.
-3. **Stable convergence:** inspect blocks 12–16 for no material late decline;
-   require the block-16 five-seed mean to retain at least 95% of the best
-   preceding milestone mean, and late greedy-action agreement of at least 90%.
-
-Five independent runs use the same schedule and validation seeds, while their
-network initialization, rollout seeds, and exploration seeds differ. Baseline
-comparisons are not convergence evidence and occur only after this gate.
-
-## Physical budget
-
-| Activity | Simulations per run |
-| --- | ---: |
-| Training rollouts (including continuation) | 88 |
-| Common-seed block-end validation | 16 |
-| Additional milestone validation | 16 |
-| **Total** | **120** |
+The efficient schedule removes redundant checkpoint simulations without
+reducing training experience. The runner logs timing for every rollout,
+optimizer block, and validation. Independent runs write isolated roots and are
+launched with a bounded two-worker parallel scheduler on this host until
+measured throughput supports a higher concurrency level.

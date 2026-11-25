@@ -9,7 +9,7 @@ $runner=Join-Path $root 'run_p4_online80_training.ps1'
 $active=@()
 foreach($id in 1..5) {
     while(@($active | Where-Object { -not $_.HasExited }).Count -ge $MaxParallel) { Start-Sleep -Seconds 15; $active=@($active | Where-Object { -not $_.HasExited }) }
-    $log=Join-Path $root ("outputs\p4_online80_dueling_run{0:D2}\runner.log" -f $id)
+    $log=Join-Path $root ("outputs\p4_efficient_dueling_run{0:D2}\runner.log" -f $id)
     New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
     $active += Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$runner,'-RunId',$id) -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError ($log+'.error') -PassThru
 }
