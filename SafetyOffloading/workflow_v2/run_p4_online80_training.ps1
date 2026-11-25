@@ -21,6 +21,7 @@ for ($episode = 1; $episode -le 80; $episode++) {
     $policy = Join-Path $updateRoot 'policy.json'
     $report = Join-Path $updateRoot 'epochs.json'
     $checkpoints = Join-Path $updateRoot 'epoch_checkpoints'
+    Copy-Item -LiteralPath $weights -Destination (Join-Path $updateRoot 'input_policy.json') -Force
     & $python (Join-Path $root 'drl\build_fresh_p4_replay.py') '--source' (Join-Path $runRoot 'episodes') '--output' $replay
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $python (Join-Path $root 'drl\train_fresh_p4_ddqn.py') '--seed' (100 + $update) '--replay' $replay '--init' $weights '--output' $policy '--report' $report '--checkpoint-dir' $checkpoints '--checkpoint-every' 1
