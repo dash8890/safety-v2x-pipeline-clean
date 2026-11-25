@@ -1,0 +1,10 @@
+{
+  "id": "R1-05_helper_adv_commit",
+  "description": "HELPER_ADV and COMMIT_REQ/ACK/NACK as Mode-2 app payloads",
+  "adv_period_ms": 100,
+  "adv_ttl_ms": 300,
+  "request_timeout_ms": 80,
+  "req_payload_bytes": 64,
+  "ack_payload_bytes": 48,
+  "status": "EXECUTABLE"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "R1-01_edge_1500",
+  "description": "1500-byte data edge fragmented at configured TB 1180 B",
+  "size_bytes": 1500,
+  "tb_bytes": 1180,
+  "expected_fragments": 2,
+  "expected_bytes": [1180, 320],
+  "status": "EXECUTABLE"
+}

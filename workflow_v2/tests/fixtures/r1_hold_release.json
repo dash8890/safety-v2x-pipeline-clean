@@ -1,0 +1,8 @@
+{
+  "id": "R1-03_hold_release",
+  "description": "HOLD for two controller ticks then RELEASE whole edge",
+  "controller_ticks": 2,
+  "expected_enqueued_before_release": 0,
+  "expected_enqueued_after_release": 2,
+  "status": "EXECUTABLE"
+}

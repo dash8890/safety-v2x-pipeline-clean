@@ -1,0 +1,10 @@
+{
+  "id": "R2-02_dependent_stage_sync",
+  "description": "Parallel B/C synchronize at D; scripted delays for unit test only",
+  "expected": {
+    "note": "Specified expected outcome under test delays — not a completed WiLab run",
+    "workflow_finish_ms": 50,
+    "D_cannot_start_before_max_of_B_and_C_arrivals": true
+  },
+  "status": "EXECUTABLE"
+}
