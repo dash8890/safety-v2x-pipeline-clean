@@ -10,6 +10,9 @@ $weights=Join-Path $root 'drl\outputs\fresh_candidate_bc.json'
 $seedBase=3000+10000*($RunId-1)
 $workerRoot=Join-Path $runRoot 'worker'
 $worker=$null
+# Total optimizer updates for the full 16-block main training budget.
+# Used by the corrected BC-retention schedule in train_fresh_p4_ddqn.py.
+$totalUpdates=1280
 
 function Write-Timing([string]$kind,[int]$id,[double]$seconds) {
  [pscustomobject]@{utc=(Get-Date).ToUniversalTime().ToString('o');kind=$kind;id=$id;seconds=$seconds}|ConvertTo-Json -Compress|Add-Content (Join-Path $runRoot 'timings.jsonl')
@@ -41,17 +44,57 @@ function Invoke-Update([int]$update,[int]$epochs,[bool]$validate) {
  $updateRoot=Join-Path $runRoot ("training\update{0:D2}" -f $update);New-Item -ItemType Directory -Force -Path $updateRoot|Out-Null
  $replay=Join-Path $updateRoot 'replay.npz';$policy=Join-Path $updateRoot 'policy.json';$report=Join-Path $updateRoot 'optimizer_updates.json';$checkpoints=Join-Path $updateRoot 'optimizer_checkpoints'
  Copy-Item -LiteralPath $weights -Destination (Join-Path $updateRoot 'input_policy.json') -Force
+ # globalUpdateStart: cumulative updates completed before this block.
+ # For the 16 main blocks (each 80 epochs): block B starts at (B-1)*80.
+ # Continuation blocks 17 and 18 are after the 1280-update budget; pass 1280
+ # so BC retention is zero (fully decayed) during those extra updates.
+ $globalUpdateStart = if ($update -le 16) { ($update - 1) * 80 } else { $totalUpdates }
  $watch=[System.Diagnostics.Stopwatch]::StartNew(); & $python (Join-Path $root 'drl\build_fresh_p4_replay.py') '--source' (Join-Path $runRoot 'rollouts') '--output' $replay;if($LASTEXITCODE -ne 0){throw "replay build failed at update $update"}
- & $python (Join-Path $root 'drl\train_fresh_p4_ddqn.py') '--seed' (100000*$RunId+$update) '--replay' $replay '--init' $weights '--output' $policy '--report' $report '--checkpoint-dir' $checkpoints '--checkpoint-every' $epochs '--epochs' $epochs;if($LASTEXITCODE -ne 0){throw "Dueling DDQN update $update failed"};$watch.Stop();Write-Timing 'optimizer_block' $update $watch.Elapsed.TotalSeconds
+ & $python (Join-Path $root 'drl\train_fresh_p4_ddqn.py') '--seed' (100000*$RunId+$update) '--replay' $replay '--init' $weights '--output' $policy '--report' $report '--checkpoint-dir' $checkpoints '--checkpoint-every' $epochs '--epochs' $epochs '--global-update-start' $globalUpdateStart '--total-updates' $totalUpdates;if($LASTEXITCODE -ne 0){throw "Dueling DDQN update $update failed"};$watch.Stop();Write-Timing 'optimizer_block' $update $watch.Elapsed.TotalSeconds
  if($validate){Invoke-Validation $update}
  $weights=$policy
 }
 New-Item -ItemType Directory -Force -Path $runRoot|Out-Null
 @{architecture='dueling_ddqn';executor='persistent_matlab_worker';run_id=$RunId;physical_seed_base=$seedBase;training_rollouts=88;optimizer_updates=1280;validation_simulations=8}|ConvertTo-Json|Set-Content (Join-Path $runRoot 'run_manifest.json')
+
+$resumeBlock=0; $resumeRollout=0
+for($b=18;$b -ge 1;$b--){
+ $pol=Join-Path $runRoot ("training\update{0:D2}\policy.json" -f $b)
+ if(Test-Path $pol){$resumeBlock=$b;$weights=$pol;break}
+}
+if($resumeBlock -gt 0){
+ if($resumeBlock -le 16){$resumeRollout=$resumeBlock*5}
+ elseif($resumeBlock -eq 17){$resumeRollout=85}
+ else{$resumeRollout=88}
+}
+$rolloutDir=Join-Path $runRoot 'rollouts'
+if(Test-Path $rolloutDir){
+ for($r=$resumeRollout+1;$r -le 88;$r++){
+  if(Test-Path (Join-Path $rolloutDir ("rollout{0:D3}\COMPLETE.mat" -f $r))){$resumeRollout=$r}else{break}
+ }
+}
+if($resumeRollout -gt 0 -or $resumeBlock -gt 0){
+ $msg="RESUME run $RunId: block=$resumeBlock rollout=$resumeRollout weights=$weights"
+ Write-Output $msg; [pscustomobject]@{utc=(Get-Date).ToUniversalTime().ToString('o');kind='resume';block=$resumeBlock;rollout=$resumeRollout}|ConvertTo-Json -Compress|Add-Content (Join-Path $runRoot 'timings.jsonl')
+}
+
 try {
  Start-Worker
- for($rollout=1;$rollout -le 80;$rollout++){Invoke-Rollout $rollout;if(($rollout%5)-eq 0){$block=[int]($rollout/5);Invoke-Update $block 80 ($block -in @(4,8,12,16))}}
- for($rollout=81;$rollout -le 88;$rollout++){Invoke-Rollout $rollout;if($rollout-eq 85){Invoke-Update 17 80 $false};if($rollout-eq 88){Invoke-Update 18 48 $false}}
+ for($rollout=1;$rollout -le 80;$rollout++){
+  if($rollout -le $resumeRollout){
+   if(($rollout%5)-eq 0){$block=[int]($rollout/5);if($block -le $resumeBlock){continue};Invoke-Update $block 80 ($block -in @(4,8,12,16))}
+   continue
+  }
+  Invoke-Rollout $rollout;if(($rollout%5)-eq 0){$block=[int]($rollout/5);Invoke-Update $block 80 ($block -in @(4,8,12,16))}
+ }
+ for($rollout=81;$rollout -le 88;$rollout++){
+  if($rollout -le $resumeRollout){
+   if($rollout-eq 85 -and $resumeBlock -lt 17){Invoke-Update 17 80 $false}
+   if($rollout-eq 88 -and $resumeBlock -lt 18){Invoke-Update 18 48 $false}
+   continue
+  }
+  Invoke-Rollout $rollout;if($rollout-eq 85){Invoke-Update 17 80 $false};if($rollout-eq 88){Invoke-Update 18 48 $false}
+ }
  & $python (Join-Path $root 'drl\evaluate_dueling_convergence.py') '--run-root' $runRoot '--output' (Join-Path $runRoot 'convergence_diagnostics.json');if($LASTEXITCODE -ne 0){throw 'convergence diagnostics failed'}
 } finally {
  New-Item -ItemType File -Force -Path (Join-Path $workerRoot 'STOP')|Out-Null

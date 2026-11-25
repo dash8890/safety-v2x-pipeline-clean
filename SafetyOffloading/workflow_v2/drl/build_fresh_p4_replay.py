@@ -30,9 +30,10 @@ def main() -> None:
             decisions = [d for d in raw["decisions"] if d.get("kind") != "STOP_PLAN"]
             if not decisions:
                 continue
-            # Match the physical utility scale: successful workflows earn 1,
-            # while each expired workflow incurs a -1 terminal penalty.
-            terminal = float(raw["terminal_utility"]) - float(raw.get("expired_workflows", 0))
+            # Terminal = deadline-valid completed utility only, matching the
+            # convergence KPI (total_value = n_success in evaluate_dueling_convergence.py).
+            # Expiry count is not subtracted: the KPI does not penalise expiry.
+            terminal = float(raw["terminal_utility"])
             manifests.append(str(path))
             for i, current in enumerate(decisions):
                 reward = 0.0

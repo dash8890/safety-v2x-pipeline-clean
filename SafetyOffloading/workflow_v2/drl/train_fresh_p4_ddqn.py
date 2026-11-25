@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Prioritized n-step Dueling Double-DQN training on physical WiLab traces."""
+"""Prioritized n-step Dueling Double-DQN training on physical WiLab traces.
+
+Corrected BC-retention schedule: decays over the full 1,280-update training
+budget (global_update / total_updates) instead of resetting each block.
+"""
 from __future__ import annotations
 import json
 import argparse
@@ -30,8 +34,6 @@ class DuelingQ(nn.Module):
         if x.ndim == 1:
             x = x[None, :]
         h = self.encoder(x)
-        # The state stream is permutation-invariant over currently executable
-        # candidate actions, rather than an independent score per candidate.
         state = h.mean(dim=0, keepdim=True)
         value = self.value(state).squeeze(-1).expand(h.shape[0])
         advantage = self.advantage(torch.cat((h, state.expand_as(h)), dim=1)).squeeze(-1)
@@ -48,8 +50,6 @@ def load_state(model: DuelingQ, path: Path) -> None:
     if "architecture" in json.loads(path.read_text()) and json.loads(path.read_text())["architecture"] == "dueling_ddqn":
         model.load_state_dict(tensors)
         return
-    # A BC scorer is permitted only as an encoder warm start; it is not a
-    # Dueling checkpoint and cannot supply value or advantage heads.
     if "net.0.weight" in tensors:
         model.encoder[0].weight.data.copy_(tensors["net.0.weight"])
         model.encoder[0].bias.data.copy_(tensors["net.0.bias"])
@@ -117,6 +117,12 @@ def main():
     parser.add_argument("--replay", type=Path, default=REPLAY)
     parser.add_argument("--init", type=Path, default=None)
     parser.add_argument("--epochs", type=int, default=80)
+    # Corrected BC retention: cumulative position in the full training budget.
+    # Pass (block-1)*80 from the orchestrator so retention is global, not per-block.
+    parser.add_argument("--global-update-start", type=int, default=0,
+                        help="Cumulative optimizer updates completed before this block call")
+    parser.add_argument("--total-updates", type=int, default=1280,
+                        help="Total optimizer updates in the full training run (1280 for 16 main blocks)")
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
@@ -153,9 +159,12 @@ def main():
             priorities[idx] = abs(float(td.detach())) + 1e-3
             losses.append(float(loss.detach()))
             abs_td_errors.append(abs(float(td.detach())))
-        # BC retention decays: it initializes viable behavior but does not
-        # prevent exploration-supported improvement.
-        retention = 0.50 * max(0, 1 - epoch / args.epochs)
+        # BC retention decays globally over the full 1,280-update training budget.
+        # global_update is the cumulative update index across all blocks; it never
+        # resets between block calls, so the BC anchor persists through mid-training
+        # rather than expiring within the first block.
+        global_update = args.global_update_start + epoch
+        retention = 0.50 * max(0.0, 1.0 - global_update / args.total_updates)
         for x, y in [demos[k] for k in rng.choice(len(demos), min(128, len(demos)), replace=False)]:
             loss = retention * F.cross_entropy(q(torch.tensor(x))[None, :], torch.tensor([y]))
             opt.zero_grad(); loss.backward(); opt.step()
@@ -170,13 +179,18 @@ def main():
                         "sum_sampled_reward": float(np.sum(sampled_rewards)),
                         "priority_p50": float(np.median(priorities)),
                         "priority_p95": float(np.quantile(priorities, .95)),
-                        "bc_retention": retention, **metrics})
+                        "bc_retention": retention,
+                        "global_update": global_update, **metrics})
         print(json.dumps(history[-1]), flush=True)
         if (epoch + 1) % args.checkpoint_every == 0:
             write_model(args.checkpoint_dir / f"dueling_ddqn_update{epoch + 1:03d}.json", q,
                         "dueling_double_dqn_checkpoint")
     write_model(args.output, q, "dueling_double_dqn")
-    args.report.write_text(json.dumps({"architecture": "dueling_ddqn", "seed": args.seed, "optimizer_updates": args.epochs, "history": history, "transitions": len(data),
+    args.report.write_text(json.dumps({"architecture": "dueling_ddqn", "seed": args.seed,
+                                  "optimizer_updates": args.epochs,
+                                  "global_update_start": args.global_update_start,
+                                  "total_updates": args.total_updates,
+                                  "history": history, "transitions": len(data),
                                   "rare_transitions": int(rare.sum())}, indent=2))
 
 
