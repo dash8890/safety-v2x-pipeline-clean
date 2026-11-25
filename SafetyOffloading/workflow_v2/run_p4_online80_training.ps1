@@ -17,8 +17,8 @@ function Write-Timing([string]$kind,[int]$id,[double]$seconds) {
 function Start-Worker {
  New-Item -ItemType Directory -Force -Path $workerRoot|Out-Null
  $ready=Join-Path $workerRoot 'READY'; Remove-Item -LiteralPath $ready -Force -ErrorAction SilentlyContinue
- $wr=$workerRoot.Replace('\','/')
- $worker=Start-Process -FilePath $matlab -ArgumentList @('-batch',"addpath(genpath('$matlabRoot')); runP4PersistentWorker('$runName','$wr');") -WindowStyle Hidden -RedirectStandardOutput (Join-Path $workerRoot 'matlab.log') -RedirectStandardError (Join-Path $workerRoot 'matlab.error.log') -PassThru
+ $wrapper=Join-Path $root 'run_p4_matlab_worker.ps1'
+ $worker=Start-Process -FilePath 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$wrapper,'-RunName',$runName,'-WorkerRoot',$workerRoot) -WindowStyle Hidden -RedirectStandardOutput (Join-Path $workerRoot 'matlab.log') -RedirectStandardError (Join-Path $workerRoot 'matlab.error.log') -PassThru
  $deadline=(Get-Date).AddMinutes(3); while(!(Test-Path $ready)){if((Get-Date)-gt $deadline){throw 'persistent MATLAB worker did not become ready'};Start-Sleep -Milliseconds 250}
 }
 function Invoke-Rollout([int]$rollout) {
