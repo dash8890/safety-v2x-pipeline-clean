@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prioritized, n-step Double-DQN update for the fixed fresh candidate scorer."""
+"""Prioritized n-step Dueling Double-DQN training on physical WiLab traces."""
 from __future__ import annotations
 import json
 import argparse
@@ -18,19 +18,41 @@ DEMO = ROOT.parent / "outputs" / "p3_bc_dataset_v3"
 GAMMA3 = 0.99 ** 3
 
 
-class Q(nn.Module):
-    # Deliberately identical to the approved non-dueling 15 -> 96 -> 1 scorer.
+class DuelingQ(nn.Module):
+    """Q(s,a)=V(s)+A(s,a)-mean_a A(s,a), for a variable candidate set."""
     def __init__(self):
         super().__init__()
-        self.net = nn.Sequential(nn.Linear(15, 96), nn.ReLU(), nn.Linear(96, 1))
+        self.encoder = nn.Sequential(nn.Linear(15, 96), nn.ReLU())
+        self.value = nn.Sequential(nn.Linear(96, 64), nn.ReLU(), nn.Linear(64, 1))
+        self.advantage = nn.Sequential(nn.Linear(192, 64), nn.ReLU(), nn.Linear(64, 1))
+
+    def components(self, x):
+        if x.ndim == 1:
+            x = x[None, :]
+        h = self.encoder(x)
+        # The state stream is permutation-invariant over currently executable
+        # candidate actions, rather than an independent score per candidate.
+        state = h.mean(dim=0, keepdim=True)
+        value = self.value(state).squeeze(-1).expand(h.shape[0])
+        advantage = self.advantage(torch.cat((h, state.expand_as(h)), dim=1)).squeeze(-1)
+        return value, advantage
 
     def forward(self, x):
-        return self.net(x).squeeze(-1)
+        value, advantage = self.components(x)
+        return value + advantage - advantage.mean()
 
 
-def load_state(model: Q, path: Path) -> None:
+def load_state(model: DuelingQ, path: Path) -> None:
     state = json.loads(path.read_text())["state_dict"]
-    model.load_state_dict({k: torch.tensor(v) for k, v in state.items()})
+    tensors = {k: torch.tensor(v) for k, v in state.items()}
+    if "architecture" in json.loads(path.read_text()) and json.loads(path.read_text())["architecture"] == "dueling_ddqn":
+        model.load_state_dict(tensors)
+        return
+    # A BC scorer is permitted only as an encoder warm start; it is not a
+    # Dueling checkpoint and cannot supply value or advantage heads.
+    if "net.0.weight" in tensors:
+        model.encoder[0].weight.data.copy_(tensors["net.0.weight"])
+        model.encoder[0].bias.data.copy_(tensors["net.0.bias"])
 
 
 def load_demos():
@@ -58,10 +80,28 @@ def draw(priorities, rare, count, rng):
     return np.concatenate((choose_rare, choose_all))
 
 
-def write_model(path: Path, model: Q, source: str) -> None:
+def write_model(path: Path, model: DuelingQ, source: str) -> None:
     state = {k: v.detach().tolist() for k, v in model.state_dict().items()}
-    path.write_text(json.dumps({"input_dim": 15, "hidden": 96, "state_dict": state,
+    path.write_text(json.dumps({"architecture": "dueling_ddqn", "input_dim": 15,
+                                "encoder_hidden": 96, "head_hidden": 64, "state_dict": state,
                                 "source": source}))
+
+
+def fixed_state_metrics(model: DuelingQ, fixed_states, previous_actions):
+    q_values, values, advantages, actions = [], [], [], []
+    with torch.no_grad():
+        for x in fixed_states:
+            v, a = model.components(x)
+            q = v + a - a.mean()
+            q_values.extend(q.tolist()); values.extend(v.tolist()); advantages.extend(a.tolist())
+            actions.append(int(q.argmax()))
+    agreement = 1.0 if previous_actions is None else float(np.mean(np.asarray(actions) == previous_actions))
+    return ({"q_p05": float(np.quantile(q_values, .05)), "q_p50": float(np.median(q_values)),
+             "q_p95": float(np.quantile(q_values, .95)), "value_p05": float(np.quantile(values, .05)),
+             "value_p50": float(np.median(values)), "value_p95": float(np.quantile(values, .95)),
+             "advantage_p05": float(np.quantile(advantages, .05)), "advantage_p50": float(np.median(advantages)),
+             "advantage_p95": float(np.quantile(advantages, .95)), "fixed_state_action_agreement": agreement},
+            np.asarray(actions))
 
 
 def main():
@@ -74,19 +114,22 @@ def main():
     parser.add_argument("--report", type=Path, default=REPORT)
     parser.add_argument("--replay", type=Path, default=REPLAY)
     parser.add_argument("--init", type=Path, default=None)
+    parser.add_argument("--epochs", type=int, default=80)
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
     torch.manual_seed(args.seed)
     data = np.load(args.replay, allow_pickle=True)["transitions"]
     rare = np.asarray([bool(x["rare"]) for x in data])
-    q = Q(); load_state(q, args.init if args.init and args.init.is_file() else BC)
-    target = Q(); target.load_state_dict(q.state_dict())
+    q = DuelingQ(); load_state(q, args.init if args.init and args.init.is_file() else BC)
+    target = DuelingQ(); target.load_state_dict(q.state_dict())
     opt = torch.optim.Adam(q.parameters(), lr=1e-4)
     priorities = np.ones(len(data), np.float64)
     demos = load_demos()
     history = []
-    for epoch in range(80):
+    fixed_states = [torch.tensor(row["cur"]) for row in data[:min(128, len(data))]]
+    previous_actions = None
+    for epoch in range(args.epochs):
         losses = []
         sampled_rewards = []
         for idx in draw(priorities, rare, max(512, len(data) // 2), rng):
@@ -107,24 +150,27 @@ def main():
             losses.append(float(loss.detach()))
         # BC retention decays: it initializes viable behavior but does not
         # prevent exploration-supported improvement.
-        retention = 0.50 * (1 - epoch / 80)
+        retention = 0.50 * max(0, 1 - epoch / args.epochs)
         for x, y in [demos[k] for k in rng.choice(len(demos), min(128, len(demos)), replace=False)]:
             loss = retention * F.cross_entropy(q(torch.tensor(x))[None, :], torch.tensor([y]))
             opt.zero_grad(); loss.backward(); opt.step()
         if (epoch + 1) % 10 == 0:
             target.load_state_dict(q.state_dict())
-        history.append({"epoch": epoch + 1, "mean_td_loss": float(np.mean(losses)),
+        metrics, previous_actions = fixed_state_metrics(q, fixed_states, previous_actions)
+        history.append({"optimizer_update": epoch + 1, "mean_td_loss": float(np.mean(losses)),
+                        "td_error_p50": float(np.median(np.sqrt(np.maximum(0, 2 * np.asarray(losses))))),
+                        "td_error_p95": float(np.quantile(np.sqrt(np.maximum(0, 2 * np.asarray(losses))), .95)),
                         "mean_sampled_reward": float(np.mean(sampled_rewards)),
                         "sum_sampled_reward": float(np.sum(sampled_rewards)),
                         "priority_p50": float(np.median(priorities)),
                         "priority_p95": float(np.quantile(priorities, .95)),
-                        "bc_retention": retention})
+                        "bc_retention": retention, **metrics})
         print(json.dumps(history[-1]), flush=True)
         if (epoch + 1) % args.checkpoint_every == 0:
-            write_model(args.checkpoint_dir / f"fresh_ddqn_epoch{epoch + 1:03d}.json", q,
-                        "fresh_p4_nstep_prioritized_ddqn_checkpoint")
-    write_model(args.output, q, "fresh_p4_nstep_prioritized_ddqn")
-    args.report.write_text(json.dumps({"seed": args.seed, "history": history, "transitions": len(data),
+            write_model(args.checkpoint_dir / f"dueling_ddqn_update{epoch + 1:03d}.json", q,
+                        "dueling_double_dqn_checkpoint")
+    write_model(args.output, q, "dueling_double_dqn")
+    args.report.write_text(json.dumps({"architecture": "dueling_ddqn", "seed": args.seed, "optimizer_updates": args.epochs, "history": history, "transitions": len(data),
                                   "rare_transitions": int(rare.sum())}, indent=2))
 
 

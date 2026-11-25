@@ -48,12 +48,30 @@ if ~isfield(W,'fresh_bc_weights_json') || ~isfile(W.fresh_bc_weights_json), retu
 persistent cachePath cache
 if isempty(cache) || ~strcmp(char(cachePath),char(W.fresh_bc_weights_json))
     d=jsondecode(fileread(W.fresh_bc_weights_json)); s=d.state_dict;
-    cache=struct('w1',double(s.net_0_weight),'b1',double(s.net_0_bias(:))', ...
-        'w2',double(s.net_2_weight),'b2',double(s.net_2_bias));
+    if isfield(d,'architecture') && string(d.architecture)=="dueling_ddqn"
+        cache=struct('dueling',true, ...
+            'ew',double(s.encoder_0_weight),'eb',double(s.encoder_0_bias(:))', ...
+            'vw1',double(s.value_0_weight),'vb1',double(s.value_0_bias(:))', ...
+            'vw2',double(s.value_2_weight),'vb2',double(s.value_2_bias), ...
+            'aw1',double(s.advantage_0_weight),'ab1',double(s.advantage_0_bias(:))', ...
+            'aw2',double(s.advantage_2_weight),'ab2',double(s.advantage_2_bias));
+    else
+        cache=struct('dueling',false,'w1',double(s.net_0_weight),'b1',double(s.net_0_bias(:))', ...
+            'w2',double(s.net_2_weight),'b2',double(s.net_2_bias));
+    end
     cachePath=W.fresh_bc_weights_json;
 end
-h=max(0,X*cache.w1'+cache.b1);
-score=h*cache.w2'+cache.b2;
+if cache.dueling
+    h=max(0,X*cache.ew'+cache.eb);
+    z=mean(h,1);
+    vh=max(0,z*cache.vw1'+cache.vb1); v=vh*cache.vw2'+cache.vb2;
+    ah=max(0,[h repmat(z,size(h,1),1)]*cache.aw1'+cache.ab1);
+    a=ah*cache.aw2'+cache.ab2;
+    score=v+a-mean(a);
+else
+    h=max(0,X*cache.w1'+cache.b1);
+    score=h*cache.w2'+cache.b2;
+end
 end
 function tf=categoricalKind(c,k)
 tf=false(numel(c),1); for i=1:numel(c), tf(i)=c(i).kind==k; end
