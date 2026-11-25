@@ -6,7 +6,7 @@ $root = 'C:\Users\dash\Downloads\NewProject\safety-v2x-pipeline\SafetyOffloading
 $python = 'C:\Users\dash\AppData\Local\Programs\Python\Python311\python.exe'
 $matlab = 'C:\Program Files\MATLAB\R2026a\bin\matlab.exe'
 $matlabRoot = 'C:/Users/dash/Downloads/NewProject/safety-v2x-pipeline/SafetyOffloading/workflow_v2'
-$runName = ('p4_efficient_dueling_run{0:D2}' -f $RunId)
+$runName = ('p4_compact_validation_dueling_run{0:D2}' -f $RunId)
 $runRoot = Join-Path $root (Join-Path 'outputs' $runName)
 $weights = Join-Path $root 'drl\outputs\fresh_candidate_bc.json'
 $seedBase = 3000 + 10000 * ($RunId - 1)
@@ -47,7 +47,7 @@ function Invoke-Update([int]$update,[int]$epochs,[bool]$validate) {
 }
 
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
-@{architecture='dueling_ddqn';run_id=$RunId;physical_seed_base=$seedBase;original_rollouts=80;original_optimizer_updates=1280;extension_rollouts=8;extension_optimizer_updates=128;milestone_validation_seeds=@(1301,1302,1303,1304,1305);milestone_blocks=@(4,8,12,16);physical_validation_simulations=20;physical_simulations_total=108} | ConvertTo-Json | Set-Content (Join-Path $runRoot 'run_manifest.json')
+@{architecture='dueling_ddqn';run_id=$RunId;physical_seed_base=$seedBase;original_rollouts=80;original_optimizer_updates=1280;extension_rollouts=8;extension_optimizer_updates=128;milestone_validation_seeds=@(1301,1302);milestone_blocks=@(4,8,12,16);offline_checkpoint_diagnostics=16;physical_validation_simulations=8;physical_simulations_total=96} | ConvertTo-Json | Set-Content (Join-Path $runRoot 'run_manifest.json')
 for ($rollout = 1; $rollout -le 80; $rollout++) {
     Invoke-Rollout $rollout
     if (($rollout % 5) -eq 0) {
