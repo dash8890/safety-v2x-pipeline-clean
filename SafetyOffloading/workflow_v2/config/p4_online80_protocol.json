@@ -1,7 +1,7 @@
 {
   "protocol": "p4_online80_v1",
-  "episodes": 80,
-  "seed_formula": "3000 + episode",
+  "training_rollouts": 80,
+  "seed_formula": "3000 + rollout_number",
   "reported_metric": "summary.total_value",
   "reported_metric_definition": "positive physical workflow utility per WiLab rollout",
   "rolling_window": 10,
