@@ -5,6 +5,7 @@
   "reported_metric": "summary.total_value",
   "reported_metric_definition": "positive physical workflow utility per WiLab rollout",
   "rolling_window": 10,
-  "training_update_every_episodes": 10,
+  "training_update_every_rollouts": 5,
+  "probe_every_training_epochs": 5,
   "prohibited_from_reward_plot": ["td_loss", "replay_sample_reward", "expiry_penalty", "checkpoint_probe_mean"]
 }

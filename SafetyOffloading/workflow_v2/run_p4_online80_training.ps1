@@ -13,8 +13,8 @@ for ($episode = 1; $episode -le 80; $episode++) {
     & $python (Join-Path $root 'drl\build_online80_ledger.py')
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    if (($episode % 10) -ne 0) { continue }
-    $update = [int]($episode / 10)
+    if (($episode % 5) -ne 0) { continue }
+    $update = [int]($episode / 5)
     $updateRoot = Join-Path $runRoot ("training\update{0:D2}" -f $update)
     New-Item -ItemType Directory -Force -Path $updateRoot | Out-Null
     $replay = Join-Path $updateRoot 'replay.npz'
@@ -24,6 +24,8 @@ for ($episode = 1; $episode -le 80; $episode++) {
     & $python (Join-Path $root 'drl\build_fresh_p4_replay.py') '--source' (Join-Path $runRoot 'episodes') '--output' $replay
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $python (Join-Path $root 'drl\train_fresh_p4_ddqn.py') '--seed' (100 + $update) '--replay' $replay '--init' $weights '--output' $policy '--report' $report '--checkpoint-dir' $checkpoints '--checkpoint-every' 1
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & $matlab -batch "addpath(genpath('$matlabRoot')); runP4OnlineBlockProbes($update);"
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $weights = $policy
 }
