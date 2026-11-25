@@ -69,10 +69,11 @@ def main():
     parser.add_argument("--checkpoint-dir", type=Path,
                         default=ROOT / "outputs" / "p4_checkpoints")
     parser.add_argument("--checkpoint-every", type=int, default=20)
+    parser.add_argument("--seed", type=int, default=23)
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    rng = np.random.default_rng(23)
-    torch.manual_seed(23)
+    rng = np.random.default_rng(args.seed)
+    torch.manual_seed(args.seed)
     data = np.load(REPLAY, allow_pickle=True)["transitions"]
     rare = np.asarray([bool(x["rare"]) for x in data])
     q = Q(); load_state(q, BC)
@@ -115,7 +116,7 @@ def main():
             write_model(args.checkpoint_dir / f"fresh_ddqn_epoch{epoch + 1:03d}.json", q,
                         "fresh_p4_nstep_prioritized_ddqn_checkpoint")
     write_model(OUT, q, "fresh_p4_nstep_prioritized_ddqn")
-    REPORT.write_text(json.dumps({"history": history, "transitions": len(data),
+    REPORT.write_text(json.dumps({"seed": args.seed, "history": history, "transitions": len(data),
                                   "rare_transitions": int(rare.sum())}, indent=2))
 
 
