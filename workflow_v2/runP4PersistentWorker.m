@@ -36,6 +36,5 @@ while ~isfile(stopFile)
     % Explicit memory cleanup between jobs to prevent workspace accumulation.
     clearvars -except runName workerRoot jobFile stopFile
     fclose('all');
-    pack
 end
 end
