@@ -7,7 +7,7 @@ for i=1:2:numel(varargin), opts.(char(varargin{i}))=varargin{i+1}; end
 candidates=emptyActions();
 for i=1:numel(W.stages)
     st=W.stages(i);
-    if st.status~="ELIGIBLE", continue; end
+    if st.status~="ELIGIBLE" || ~predsDone(W,st), continue; end
     candidates(end+1)=action("COMMIT_LOCAL",st.workflow_id,st.stage_id,0,0,"local"); %#ok<AGROW>
     for helper=1:numel(W.cpu)
         if helper==W.origin_id || ~observedReachable(W,helper), continue; end
@@ -31,6 +31,25 @@ end
 candidates(end+1)=action("STOP_PLAN",0,"",0,0,"no_fictitious_progress");
 end
 
+function tf=predsDone(W,st)
+tf=true;
+for eid=st.pred_edges
+    ed=[];
+    for k=1:numel(W.edges), if W.edges(k).edge_id==eid, ed=W.edges(k); break; end, end
+    if isempty(ed), continue; end
+    if ed.src_stage==""
+        if ed.status~="DELIVERED", tf=false; return; end
+    else
+        pst=[];
+        for k=1:numel(W.stages)
+            if W.stages(k).workflow_id==st.workflow_id && W.stages(k).stage_id==ed.src_stage
+                pst=W.stages(k); break
+            end
+        end
+        if ~isempty(pst) && pst.status~="DONE", tf=false; return; end
+    end
+end
+end
 function tf=observedReachable(W,helper)
 tf=helper<=size(W.contact,2) && logical(W.contact(W.origin_id,helper));
 end
