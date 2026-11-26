@@ -18,7 +18,7 @@ REPLAY = ROOT / "outputs" / "fresh_p4_replay.npz"
 BC = ROOT / "outputs" / "fresh_candidate_bc.json"
 OUT = ROOT / "outputs" / "fresh_ddqn.json"
 REPORT = ROOT / "outputs" / "fresh_p4_train_report.json"
-DEMO = ROOT.parent / "outputs" / "p3_bc_dataset_v3"
+DEMO = ROOT.parent / "outputs" / "p3_bc_dataset_v4"
 GAMMA3 = 0.99 ** 3
 
 

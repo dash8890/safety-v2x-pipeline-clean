@@ -11,7 +11,7 @@ for i=1:n
         adv=latestAdv(W,a.helper_id);
         if ~isempty(adv)
             X(i,9)=min(2,(adv.queued_cycles+adv.admitted_pending_cycles)/max(adv.available_cpu_hz*W.rel_deadline_s,1));
-            X(i,10)=min(2,adv.available_cpu_hz/originHz);
+            X(i,10)=adv.available_cpu_hz/max([W.cpu.available_hz]);
         end
     end
     X(i,11:14)=stageOneHot(a.stage_id);
