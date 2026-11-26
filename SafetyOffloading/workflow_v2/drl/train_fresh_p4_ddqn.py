@@ -204,6 +204,8 @@ def main():
                         help="Cumulative optimizer updates completed before this block call")
     parser.add_argument("--total-updates", type=int, default=1280,
                         help="Total optimizer updates in the full training run (1280 for 16 main blocks)")
+    parser.add_argument("--bc-weight", type=float, default=0.50,
+                        help="BC regularisation weight; 0.0 disables BC loss entirely (keeps BC init)")
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
@@ -246,10 +248,11 @@ def main():
         # resets between block calls, so the BC anchor persists through mid-training
         # rather than expiring within the first block.
         global_update = args.global_update_start + epoch
-        retention = max(0.05, 0.50 * max(0.0, 1.0 - global_update / args.total_updates))
-        for x, y in [demos[k] for k in rng.choice(len(demos), min(128, len(demos)), replace=False)]:
-            loss = retention * F.cross_entropy(q(torch.tensor(x))[None, :], torch.tensor([y]))
-            opt.zero_grad(); loss.backward(); opt.step()
+        retention = max(0.0, args.bc_weight * max(0.0, 1.0 - global_update / args.total_updates))
+        if retention > 0 and demos:
+            for x, y in [demos[k] for k in rng.choice(len(demos), min(128, len(demos)), replace=False)]:
+                loss = retention * F.cross_entropy(q(torch.tensor(x))[None, :], torch.tensor([y]))
+                opt.zero_grad(); loss.backward(); opt.step()
         if (epoch + 1) % 5 == 0:
             target.load_state_dict(q.state_dict()); target.eval()
         metrics, previous_actions, previous_q = fixed_state_metrics(q, fixed_states, previous_actions, previous_q)

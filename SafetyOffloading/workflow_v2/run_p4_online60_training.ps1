@@ -1,4 +1,4 @@
-param([ValidateRange(1,5)][int]$RunId = 1)
+param([ValidateRange(1,9)][int]$RunId = 1)
 $ErrorActionPreference='Stop'
 $root='C:\Users\dash\Downloads\NewProject\safety-v2x-pipeline\SafetyOffloading\workflow_v2'
 $python='C:\Users\dash\AppData\Local\Programs\Python\Python311\python.exe'
@@ -95,7 +95,7 @@ function Invoke-Update([int]$update,[int]$epochs,[bool]$validate) {
  Copy-Item -LiteralPath $weights -Destination (Join-Path $updateRoot 'input_policy.json') -Force
  $globalUpdateStart = if ($update -le 12) { ($update - 1) * 40 } else { $totalUpdates }
  $watch=[System.Diagnostics.Stopwatch]::StartNew(); & $python (Join-Path $root 'drl\build_fresh_p4_replay.py') '--source' (Join-Path $runRoot 'rollouts') '--output' $replay;if($LASTEXITCODE -ne 0){throw "replay build failed at update $update"}
- & $python (Join-Path $root 'drl\train_fresh_p4_ddqn.py') '--seed' (100000*$RunId+$update) '--replay' $replay '--init' $weights '--output' $policy '--report' $report '--checkpoint-dir' $checkpoints '--checkpoint-every' $epochs '--epochs' $epochs '--global-update-start' $globalUpdateStart '--total-updates' $totalUpdates;if($LASTEXITCODE -ne 0){throw "Dueling DDQN update $update failed"};$watch.Stop();Write-Timing 'optimizer_block' $update $watch.Elapsed.TotalSeconds
+ & $python (Join-Path $root 'drl\train_fresh_p4_ddqn.py') '--seed' (100000*$RunId+$update) '--replay' $replay '--init' $weights '--output' $policy '--report' $report '--checkpoint-dir' $checkpoints '--checkpoint-every' $epochs '--epochs' $epochs '--global-update-start' $globalUpdateStart '--total-updates' $totalUpdates '--bc-weight' '0.0';if($LASTEXITCODE -ne 0){throw "Dueling DDQN update $update failed"};$watch.Stop();Write-Timing 'optimizer_block' $update $watch.Elapsed.TotalSeconds
  if($validate){Invoke-Validation $update}
  $weights=$policy
 }
