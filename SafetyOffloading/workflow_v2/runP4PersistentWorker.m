@@ -30,8 +30,11 @@ while ~isfile(stopFile)
         end
         fid=fopen(doneFile,'w'); fprintf(fid,'%s',jsonencode(struct('status','ok','tag',tag))); fclose(fid);
     catch err
-        fid=fopen(failedFile,'w'); fprintf(fid,'%s',jsonencode(struct('status','failed','rollout_id',job.rollout_id,'message',err.message))); fclose(fid);
+        fid=fopen(failedFile,'w'); fprintf(fid,'%s',jsonencode(struct('status','failed','tag',tag,'message',err.message))); fclose(fid);
     end
     if isfile(runningFile), delete(runningFile); end
+    % Explicit memory cleanup between jobs to prevent workspace accumulation.
+    clearvars -except runName workerRoot jobFile stopFile
+    fclose('all');
 end
 end

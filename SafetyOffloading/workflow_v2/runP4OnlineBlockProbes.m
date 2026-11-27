@@ -6,8 +6,8 @@ arguments
 end
 root=fileparts(mfilename('fullpath'));
 updateRoot=fullfile(root,'outputs',runName,'training',sprintf('update%02d',updateBlock));
-weights=fullfile(updateRoot,'optimizer_checkpoints','dueling_ddqn_update080.json');
-if ~isfile(weights), error('Missing block-end checkpoint: %s',weights); end
+weights=fullfile(updateRoot,'policy.json');
+if ~isfile(weights), error('Missing block-end policy: %s',weights); end
 seeds=[1301 1302];
 out=fullfile(root,'outputs',runName,'validation',sprintf('block%02d',updateBlock));
 cfg=fullfile(root,'config','p3_bc_selected.json');
