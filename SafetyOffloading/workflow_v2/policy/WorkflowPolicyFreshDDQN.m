@@ -44,10 +44,11 @@ end
 
 function score=bcScore(W,X)
 score=[];
-if ~isfield(W,'fresh_bc_weights_json') || ~isfile(W.fresh_bc_weights_json), return; end
+wfield='fresh_weights_json'; if ~isfield(W,wfield), wfield='fresh_bc_weights_json'; end
+if ~isfield(W,wfield) || ~isfile(W.(wfield)), return; end
 persistent cachePath cache
-if isempty(cache) || ~strcmp(char(cachePath),char(W.fresh_bc_weights_json))
-    d=jsondecode(fileread(W.fresh_bc_weights_json)); s=d.state_dict;
+if isempty(cache) || ~strcmp(char(cachePath),char(W.(wfield)))
+    d=jsondecode(fileread(W.(wfield))); s=d.state_dict;
     if isfield(d,'architecture') && string(d.architecture)=="dueling_ddqn"
         cache=struct('dueling',true, ...
             'ew',double(s.encoder_0_weight),'eb',double(s.encoder_0_bias(:))', ...
@@ -59,7 +60,7 @@ if isempty(cache) || ~strcmp(char(cachePath),char(W.fresh_bc_weights_json))
         cache=struct('dueling',false,'w1',double(s.net_0_weight),'b1',double(s.net_0_bias(:))', ...
             'w2',double(s.net_2_weight),'b2',double(s.net_2_bias));
     end
-    cachePath=W.fresh_bc_weights_json;
+    cachePath=W.(wfield);
 end
 if cache.dueling
     h=max(0,X*cache.ew'+cache.eb);
