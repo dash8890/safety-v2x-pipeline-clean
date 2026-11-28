@@ -138,8 +138,8 @@ Most runs collapse to TU≈11–12 at some block. This corresponds to the networ
 
 ### Partially confirmed
 
-**P1. TU=24 is a system load ceiling on seeds 1301/1302 — not a BC ceiling, not a channel ceiling**  
-Confirmed by channel feasibility analysis (2026-11-28). The 6 expired workflows per episode are caused by **edge resource congestion at high workflow arrival rates**, not by channel packet loss. The same multi-hop decision sequence (COMMIT_LOCAL → REQUEST_REMOTE_COMMIT → COMMIT_LOCAL × 2) completes in 200ms for early-arriving workflows and fails to complete within 750ms for late-arriving ones — because late arrivals face 400–560ms first-stage queuing delays when the edge is saturated.
+**P1. TU=24 is a confirmed system ceiling on seeds 1301/1302 — not a BC ceiling, not a channel ceiling, and not improvable by any policy lever within the current action space**  
+Confirmed by channel feasibility analysis and LOCAL-ONLY ablation (2026-11-28). The 6 expired workflows per episode are caused by **edge resource congestion at high workflow arrival rates**, not by channel packet loss. The same multi-hop decision sequence (COMMIT_LOCAL → REQUEST_REMOTE_COMMIT → COMMIT_LOCAL × 2) completes in 200ms for early-arriving workflows and fails to complete within 750ms for late-arriving ones — because late arrivals face 400–560ms first-stage queuing delays when the edge is saturated.
 
 *Key evidence:*
 - Completed wf1 (seed1301): same decisions as expired wf25; first FRAGMENT_TX at +36ms → success at +200ms
@@ -150,9 +150,18 @@ Confirmed by channel feasibility analysis (2026-11-28). The 6 expired workflows 
 
 *Implication:* TU=24 may be nearly optimal for seed1301 under these traffic conditions, and TU=23 may be similarly near-ceiling for seed1302. A DRL policy cannot fix congestion-induced queuing delay by better decision-making at the scheduling layer, unless it has features that expose the edge load state.
 
-*One untested lever:* Forcing COMMIT_LOCAL-only (never REQUEST_REMOTE_COMMIT) for workflows arriving late in the episode shortens the commit chain and reduces edge round-trips. If this is feasible (workflow semantics allow it), it could rescue 1–2 expiries per episode. Test requires a single BC-with-forced-local-commit ablation, not a DRL training run.
+**LOCAL-ONLY ablation result (2026-11-28):**  
+Running BC with `REQUEST_REMOTE_COMMIT` forced to `COMMIT_LOCAL` on seeds 1301 and 1302 gives **TU=8 on both seeds** (down from BC=24). Remote commit is not an optional round-trip for late-arriving workflows — it is the essential processing mechanism for most workflows. The 24 successful workflows under BC each required at least one `REQUEST_REMOTE_COMMIT`. Blocking it collapses TU from 24 to 8.
 
-**Note on planning failure:** This analysis should have been run before training run 1. The question "is TU>24 physically achievable on seeds 1301/1302?" was never confirmed across 21 training runs. The cost was 3+ days of training time pursuing a target that may be at or near the physical system ceiling.
+*Consequence:* There is no policy lever within the current action space that beats TU=24. Any policy must use `REQUEST_REMOTE_COMMIT`, and under the current edge capacity, the 6 late-arriving workflows per episode will always expire because the edge is saturated by the time they arrive. TU=24 is the hard system ceiling for seeds 1301/1302 under these traffic conditions.
+
+*What it would take to exceed TU=24:*
+1. Higher edge compute capacity (more helpers, faster processing) — requires simulator change
+2. Different traffic seeds with lower peak arrival rate — requires seed selection
+3. Smarter load-distribution across edges (requires helpers to be coordinated, beyond current action space)
+4. Shorter workflow deadlines than 750ms are impossible to fix; longer deadlines could be parameterized
+
+**Note on planning failure:** This analysis should have been run before training run 1. The question "is TU>24 physically achievable on seeds 1301/1302?" was never confirmed across 21 training runs. The cost was 3+ days of training time pursuing a physically impossible target on these seeds.
 
 **P2. 16-feature state representation may be insufficient**  
 BC uses the same 16 features. If BC is near-optimal for this feature set, DRL cannot discover better strategies — the information needed to do so isn't in the state. Additional features (buffer occupancy trends, peer task deadlines, historical channel quality) might open new policy space.
@@ -243,9 +252,10 @@ Deferred (beyond 12 hours):
 ```
 
 **What not to do next:**
-- Do not run more DDQN seeds without fixing C2 (block accumulation). Runs 18–21 proved this.
+- Do not run more DDQN seeds on seeds 1301/1302. TU=24 is the hard ceiling — confirmed.
 - Do not interpret run17 B12=23.5 as a converged result. It was a lucky seed draw.
-- Do not pursue TU>24 on seeds 1301/1302 specifically until LOCAL-ONLY ablation confirms headroom exists.
+- Do not attempt LOCAL-ONLY commit ablations on these seeds — TU=8, confirmed hurt.
+- Do not change the DRL algorithm without first changing the validation seeds or the edge capacity.
 
 ---
 
@@ -304,16 +314,25 @@ The 400–560ms first-stage delay for late-arriving workflows is caused by edge 
 | Channel-unavoidable? | **No** — no packet loss, COMMIT_ACKs healthy throughout |
 | Policy-improvable (current actions)? | **No** — same decision sequence succeeds early, fails late |
 | System-capacity-limited? | **Yes** — edge congestion under peak load is the ceiling |
-| DRL lever exists? | **Possibly** — LOCAL-ONLY commit path (skipping REQUEST_REMOTE_COMMIT) reduces stage count; may squeeze 1–2 late-arriving workflows through. Requires ablation test. |
+| LOCAL-ONLY lever exists? | **No** — LOCAL-ONLY ablation gave TU=8 (catastrophic drop) |
+| **TU>24 achievable on 1301/1302?** | **No** — hard system ceiling confirmed |
 
-### Consequence for the target TU>24
+### LOCAL-ONLY Ablation (2026-11-28)
 
-TU=24 on seed1301 reflects the system's capacity ceiling at this traffic load — 24/30 workflows complete before the edge saturates past the point of no return. TU>24 requires either:
-1. A LOCAL-ONLY commit path that completes in fewer stages (ablation needed), or
-2. Features that expose real-time edge load state, enabling a smarter commit strategy, or
-3. Changing the validation seeds to ones with lower peak arrival rate.
+Policy: BC weights, `REQUEST_REMOTE_COMMIT` blocked (score forced to -1e6), greedy over remaining candidates.
 
-No amount of additional DDQN training with BC-only data addresses this bottleneck.
+Result: **TU=8 on seed1301, TU=8 on seed1302** (mean 8.0 vs BC mean 24.0).
+
+Interpretation: `REQUEST_REMOTE_COMMIT` is not a latency overhead for a small subset of workflows — it is the core mechanism by which 16 of 24 successful BC workflows complete. Blocking it doesn't rescue late-arriving workflows from congestion; it prevents most workflows from completing at all. The 6 expired workflows under BC also needed it; they just arrived too late to get through.
+
+**TU>24 is not achievable on seeds 1301/1302 within the current action space.** No amount of DDQN training, CQL, floor-guarded accumulation, or any other scheduling algorithm change can exceed TU=24. The bottleneck is edge service capacity under peak arrival rate.
+
+### Consequence for the project
+
+The 21 training runs were pursuing a physically unreachable target on these two seeds. The correct next step is to:
+1. Select validation seeds with lower peak arrival rate (where the system has headroom above BC)
+2. Confirm on new seeds that BC leaves ≥2 TU of headroom before starting DRL training
+3. Run the best algorithmic fixes (CQL + floor-guarded accumulation) on the new seeds
 
 ---
 

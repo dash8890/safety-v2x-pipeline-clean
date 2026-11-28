@@ -78,7 +78,7 @@ if isfield(cfg.workflow,'fresh_bc_weights_json')
     W.fresh_bc_weights_json=string(cfg.workflow.fresh_bc_weights_json);
 elseif string(s.policy)=="workflow_fresh_ddqn"
     W.fresh_bc_weights_json=fullfile(fileparts(mfilename('fullpath')),'..','drl','outputs','fresh_ddqn.json');
-elseif string(s.policy)=="workflow_fresh_bc"
+elseif string(s.policy)=="workflow_fresh_bc" || string(s.policy)=="workflow_local_only"
     W.fresh_bc_weights_json=fullfile(fileparts(mfilename('fullpath')),'..','drl','outputs','fresh_candidate_bc.json');
 end
 if isfield(cfg.workflow,'ddqn_weights_json')
@@ -580,6 +580,13 @@ end
 function W=runController(W,nowS)
 W.now_s=nowS;
 pol=string(W.policy);
+if pol=="workflow_local_only"
+    [a,X]=WorkflowPolicyLocalOnly(W);
+    W=WorkflowActionValidator('apply',W,a);
+    W.decision_log(end+1)=struct('t_s',nowS,'policy',pol,'action',string(a.kind), ...
+        'workflow_id',a.workflow_id,'detail',string(a.detail)); %#ok<AGROW>
+    return
+end
 if pol=="workflow_fresh_ddqn" || pol=="workflow_fresh_bc"
     [a,X]=WorkflowPolicyFreshDDQN(W);
     c=WorkflowCandidateBuilder(W); ix=0;
