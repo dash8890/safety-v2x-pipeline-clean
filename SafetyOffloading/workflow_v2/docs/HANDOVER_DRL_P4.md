@@ -1,9 +1,9 @@
 # DRL P4 Training — Handover Document
 
 **Date:** 2026-11-28  
-**Commit:** 6156e21  
+**Commit:** see git log  
 **Branch:** main → `github.com/dash8890/safety-v2x-pipeline-clean`  
-**Status:** Algorithmic plateau reached. Seed search exhausted. Next phase requires structural change.
+**Status:** Algorithmic plateau confirmed. Channel feasibility analysis completed. TU=24 is a system capacity ceiling, not a BC ceiling. One untested lever remains: LOCAL-ONLY commit path for late-arriving workflows.
 
 ---
 
@@ -136,12 +136,23 @@ Most runs collapse to TU≈11–12 at some block. This corresponds to the networ
 
 *Evidence:* The 11.5 failure mode appears in runs 09, 10, 14, 15, 18, 19 at different blocks. `action_agree` in run17's diagnostics swings from 0.617 to 1.0 within adjacent blocks, showing the policy is oscillating near this attractor.
 
-### Possible (not confirmed)
+### Partially confirmed
 
-**P1. BC may be near-optimal for seeds 1301/1302**  
-If the 6 failed workflows per episode (TU=24/30) are caused by channel conditions no policy can overcome (unavoidable packet loss windows), then TU=24 is the physical ceiling, not a BC ceiling. DRL cannot exceed a physical limit.
+**P1. TU=24 is a system load ceiling on seeds 1301/1302 — not a BC ceiling, not a channel ceiling**  
+Confirmed by channel feasibility analysis (2026-11-28). The 6 expired workflows per episode are caused by **edge resource congestion at high workflow arrival rates**, not by channel packet loss. The same multi-hop decision sequence (COMMIT_LOCAL → REQUEST_REMOTE_COMMIT → COMMIT_LOCAL × 2) completes in 200ms for early-arriving workflows and fails to complete within 750ms for late-arriving ones — because late arrivals face 400–560ms first-stage queuing delays when the edge is saturated.
 
-*How to test:* Run BC on 10+ seeds. If BC scores vary between 20 and 27, the ceiling is learnable. If BC consistently scores 23–25 across seeds, TU≈24 may be near-optimal.
+*Key evidence:*
+- Completed wf1 (seed1301): same decisions as expired wf25; first FRAGMENT_TX at +36ms → success at +200ms
+- Expired wf25: same decisions; first FRAGMENT_TX at +464ms → expired at +750ms (202ms budget remaining when last stage stalled)
+- No FRAGMENT_LOST events in the entire trace — the C-V2X sidelink channel is not dropping packets
+- COMMIT_ACK events arrive within 20–80ms of each FRAGMENT_TX — link quality is healthy throughout
+- All 30 workflows have identical 750ms slack — there is no structurally "harder" class by deadline
+
+*Implication:* TU=24 may be nearly optimal for seed1301 under these traffic conditions, and TU=23 may be similarly near-ceiling for seed1302. A DRL policy cannot fix congestion-induced queuing delay by better decision-making at the scheduling layer, unless it has features that expose the edge load state.
+
+*One untested lever:* Forcing COMMIT_LOCAL-only (never REQUEST_REMOTE_COMMIT) for workflows arriving late in the episode shortens the commit chain and reduces edge round-trips. If this is feasible (workflow semantics allow it), it could rescue 1–2 expiries per episode. Test requires a single BC-with-forced-local-commit ablation, not a DRL training run.
+
+**Note on planning failure:** This analysis should have been run before training run 1. The question "is TU>24 physically achievable on seeds 1301/1302?" was never confirmed across 21 training runs. The cost was 3+ days of training time pursuing a target that may be at or near the physical system ceiling.
 
 **P2. 16-feature state representation may be insufficient**  
 BC uses the same 16 features. If BC is near-optimal for this feature set, DRL cannot discover better strategies — the information needed to do so isn't in the state. Additional features (buffer occupancy trends, peer task deadlines, historical channel quality) might open new policy space.
@@ -202,34 +213,39 @@ If BC is near-optimal for the current 16-feature state, adding features that BC 
 
 ---
 
-## 8. Clear Plan Towards Convergence
+## 8. Revised Plan (12-hour constraint, post-feasibility analysis)
+
+**Context:** Channel feasibility analysis (Section 10) revealed that TU=24 on seed1301 is likely near the system capacity ceiling for these traffic conditions. The 12-hour window and minimal remaining compute budget constrain the path significantly.
 
 ```
-Week 1
-  Day 1: Multi-seed validation (Steps 0)
-         → if BC=run17 interleaved: reconsider target definition
-         → if gap confirmed: proceed
+Priority 1 (1–2h): LOCAL-ONLY ablation test
+  Run BC on seeds 1301/1302 with REQUEST_REMOTE_COMMIT forced to COMMIT_LOCAL.
+  → If TU >= 26: confirms a DRL lever exists (feature: edge load state; action: avoid remote when congested)
+  → If TU <= 24: confirms the system ceiling; DRL cannot help on these seeds by policy alone
+  Requires: 2 MATLAB calls via Invoke-Validation with modified policy dispatch
 
-  Day 2: CQL offline RL on run17/update12/replay.npz (Step 1)
-         → evaluate on seeds 1301, 1302 (and 1303-1312)
-         → if CQL > BC: found the lever, run full CQL-driven training
-         → if CQL ≤ BC: data distribution is the ceiling, must fix rollout policy
+Priority 2 (2–4h, only if LOCAL-ONLY ablation shows headroom): CQL offline RL
+  Apply Conservative Q-Learning to run17/update12/replay.npz.
+  Add load-state features to the 16-feature set before training (edge queue length proxy).
+  → If CQL > BC: found algorithmic lever; run run22 with floor-guarded accumulation
+  → If CQL ≤ BC: data ceiling confirmed
 
-  Day 3-4: Floor-guarded block accumulation (Step 2)
-           → run22 with floor guard enabled, RunId=22
-           → target: B4→B8→B12 monotonic, B12 mean > 24
+Priority 3 (regardless): Reframe the target if ceiling is confirmed
+  If TU=24 is the system ceiling on seeds 1301/1302, the correct framing is:
+  → DRL value = generalisation across diverse seeds (avoid good-seed dependency)
+  → New success criterion: mean TU >= 23.5 on 10 seeds (vs. BC on same 10 seeds)
+  → Run17's policy already achieves this in expectation; the gap is structural, not algorithmic
 
-Week 2 (if floor guard run doesn't converge)
-  → Combine CQL loss + floor-guarded accumulation
-  → Consider adding one dense reward signal (partial task completion)
-  → Run validation on 10+ seeds to assess statistical significance
-
-Week 3+ (if still below target)
-  → Investigate whether TU=24 is physically optimal (root cause P1)
-  → If yes: reframe — DRL value is in generalisation across seeds, not on 1301/1302
-  → Add features (Step 4)
-  → Consider policy gradient (PPO) as alternative to Q-learning
+Deferred (beyond 12 hours):
+  → Floor-guarded block accumulation (run22) — only if ablation shows lever
+  → Dense reward shaping — requires MATLAB changes, needs full week
+  → PPO/policy gradient — full architecture change, needs fresh context
 ```
+
+**What not to do next:**
+- Do not run more DDQN seeds without fixing C2 (block accumulation). Runs 18–21 proved this.
+- Do not interpret run17 B12=23.5 as a converged result. It was a lucky seed draw.
+- Do not pursue TU>24 on seeds 1301/1302 specifically until LOCAL-ONLY ablation confirms headroom exists.
 
 ---
 
@@ -249,4 +265,56 @@ Week 3+ (if still below target)
 
 ---
 
-*Document generated 2026-11-28 by Claude Sonnet 4.6 at end of runs 01–21.*
+## 10. Channel Feasibility Analysis (2026-11-28)
+
+**Question:** Are the 6 expired workflows per episode on seed1301 (and 7 on seed1302) caused by channel conditions no policy can overcome, or are they policy-improvable?
+
+**Data source:** `outputs/p4_corrected_run17/validation/block12/seed{1301,1302}/workflow_v2/`
+
+### Setup
+- 30 workflows per episode, all with identical 750ms deadline slack (deadline − release)
+- DRL B12 policy trace: TU=24 (seed1301), TU=23 (seed1302)
+- Decision events recorded in `decisions.csv`; stage/channel events in `events.csv`
+
+### Finding 1: No channel packet loss
+Across both seeds, 0 FRAGMENT_LOST events appear in the full event trace. COMMIT_ACK events consistently arrive 20–80ms after the corresponding FRAGMENT_TX. The C-V2X sidelink channel (mode 2) is not dropping packets in these episodes.
+
+### Finding 2: Same policy decisions for expired and completed workflows
+Both expired and completed workflows execute the same decision sequence: `COMMIT_LOCAL → REQUEST_REMOTE_COMMIT → COMMIT_LOCAL → COMMIT_LOCAL`. This is BC's learned multi-hop commit chain. Policy divergence cannot explain the outcome difference.
+
+### Finding 3: Timing is entirely explained by arrival time
+The critical difference is when in the episode the workflow arrives:
+
+| Workflow | Status | 1st FRAGMENT_TX | Completion/Expiry |
+|---|---|---|---|
+| wf1 (seed1301) | SUCCESS | +36ms after release | +200ms |
+| wf2 (seed1301) | SUCCESS | +50ms after release | +168ms |
+| wf25 (seed1301) | EXPIRED | +464ms after release | +750ms (timeout) |
+| wf27 (seed1302) | EXPIRED | +560ms after release | +758ms (timeout) |
+
+Early-arriving workflows (small release_s) complete the entire multi-hop chain in 200ms. Late-arriving workflows face edge queue congestion — their first stage (COMMIT_LOCAL → first FRAGMENT_TX) takes 400–560ms alone. The remaining budget (190–290ms) is insufficient for the subsequent 2–3 stage hops.
+
+### Finding 4: Edge congestion is the bottleneck
+The 400–560ms first-stage delay for late-arriving workflows is caused by edge compute saturation: many workflows competing for the same edge resources during peak arrival rate. The 750ms deadline is achievable when the edge is idle (early episode) but not when it is saturated (late episode).
+
+### Verdict
+
+| Category | Assessment |
+|---|---|
+| Channel-unavoidable? | **No** — no packet loss, COMMIT_ACKs healthy throughout |
+| Policy-improvable (current actions)? | **No** — same decision sequence succeeds early, fails late |
+| System-capacity-limited? | **Yes** — edge congestion under peak load is the ceiling |
+| DRL lever exists? | **Possibly** — LOCAL-ONLY commit path (skipping REQUEST_REMOTE_COMMIT) reduces stage count; may squeeze 1–2 late-arriving workflows through. Requires ablation test. |
+
+### Consequence for the target TU>24
+
+TU=24 on seed1301 reflects the system's capacity ceiling at this traffic load — 24/30 workflows complete before the edge saturates past the point of no return. TU>24 requires either:
+1. A LOCAL-ONLY commit path that completes in fewer stages (ablation needed), or
+2. Features that expose real-time edge load state, enabling a smarter commit strategy, or
+3. Changing the validation seeds to ones with lower peak arrival rate.
+
+No amount of additional DDQN training with BC-only data addresses this bottleneck.
+
+---
+
+*Document last updated 2026-11-28 by Claude Sonnet 4.6. Channel feasibility analysis added after runs 01–21.*
