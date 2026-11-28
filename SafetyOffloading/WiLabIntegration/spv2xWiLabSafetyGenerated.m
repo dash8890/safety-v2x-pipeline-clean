@@ -24,11 +24,15 @@ if ~isempty(rx)
         if isempty(bin), bin=numel(cfg.safety.distance_bins_m)-1; end
         bins(i)=bin;
     end
-    first=size(s.safety_rows,1)+1;
+    first=s.safety_row_cursor+1; last=first+numel(rx)-1;
+    if last>size(s.safety_rows,1)
+        newCapacity=max(last,ceil(size(s.safety_rows,1)*1.5));
+        s.safety_rows(newCapacity,12)=0;
+    end
     block=[repmat([tx seq tx],numel(rx),1),rx(:), ...
         repmat([nowMs nowMs+cfg.safety.deadline_ms NaN 0 cfg.safety.packet_bytes],numel(rx),1), ...
         ranges(:),bins,repmat(packetId,numel(rx),1)];
-    s.safety_rows=[s.safety_rows;block];
+    s.safety_rows(first:last,:)=block; s.safety_row_cursor=last;
     s.safety_row_start(packetId)=first;
     s.safety_row_count(packetId)=numel(rx);
 end

@@ -9,12 +9,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ROOT=Path(__file__).resolve().parent
-DATA=ROOT.parent/'outputs'/'p3_bc_dataset_v3'
+DATA=ROOT.parent/'outputs'/'p3_bc_dataset_v5'
 OUT=ROOT/'outputs'; OUT.mkdir(exist_ok=True)
 
 class Scorer(nn.Module):
     def __init__(self):
-        super().__init__(); self.net=nn.Sequential(nn.Linear(15,96),nn.ReLU(),nn.Linear(96,1))
+        super().__init__(); self.net=nn.Sequential(nn.Linear(16,96),nn.ReLU(),nn.Linear(96,1))
     def forward(self,x): return self.net(x).squeeze(-1)
 
 def load():
@@ -37,7 +37,7 @@ def main():
             losses.append(loss.item()); correct+=int(q.argmax().item()==y)
         if epoch in (0,19,39,79): print(f'epoch={epoch+1} loss={np.mean(losses):.4f} acc={correct/len(data):.3f}',flush=True)
     torch.save(model.state_dict(),OUT/'fresh_candidate_bc.pt')
-    payload={'input_dim':15,'hidden':96,'state_dict':{k:v.detach().tolist() for k,v in model.state_dict().items()},'examples':len(data)}
+    payload={'input_dim':16,'hidden':96,'state_dict':{k:v.detach().tolist() for k,v in model.state_dict().items()},'examples':len(data)}
     (OUT/'fresh_candidate_bc.json').write_text(json.dumps(payload),encoding='utf-8')
     print(json.dumps({'examples':len(data),'train_accuracy':correct/len(data)}))
 if __name__=='__main__': main()

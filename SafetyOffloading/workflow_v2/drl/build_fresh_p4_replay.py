@@ -10,11 +10,15 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = Path(__file__).resolve().parent / "outputs" / "fresh_p4_replay.npz"
 GAMMA = 0.99
 N_STEP = 3
+# Penalise zero-progress decisions so Q(RRC with no utility gain) converges to
+# a negative value instead of inflating toward the BC-bootstrapped positive.
+STEP_PENALTY = 0.05
 
 
 def decision_reward(decisions: list[dict], terminal: float, i: int) -> float:
     after = float(decisions[i + 1]["utility_before"]) if i + 1 < len(decisions) else terminal
-    return after - float(decisions[i]["utility_before"])
+    delta = after - float(decisions[i]["utility_before"])
+    return delta if delta > 0 else delta - STEP_PENALTY
 
 
 def main() -> None:
@@ -53,7 +57,7 @@ def main() -> None:
                 action = int(current["action_index"]) - 1
                 kind = str(current.get("kind", ""))
                 # Preserve scarce outcomes even before the first TD update.
-                rare = bool(abs(reward) > 0 or kind in {"REQUEST_REMOTE_COMMIT", "RELEASE_EDGE", "REJECT_WORKFLOW"})
+                rare = bool(reward > 0 or kind in {"RELEASE_EDGE", "REJECT_WORKFLOW"})
                 replay.append({
                     "cur": features, "action": action, "next": next_features,
                     "reward": float(reward), "done": bool(done), "kind": kind,

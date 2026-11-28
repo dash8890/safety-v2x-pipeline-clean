@@ -1,8 +1,18 @@
 function X=WorkflowFreshCandidateFeatures(W,candidates)
 %WORKFLOWFRESHCANDIDATEFEATURES Causal features for fresh action candidates.
 % Rows align exactly with WorkflowCandidateBuilder's executable action union.
-n=numel(candidates); X=zeros(n,15);
+n=numel(candidates); X=zeros(n,16);
 originQ=queued(W.cpu(W.origin_id)); originHz=max(W.cpu(W.origin_id).available_hz,1);
+n_data_frags=0;
+if isfield(W,'log')
+    for li=1:numel(W.log)
+        e=W.log(li);
+        if (e.type=="FRAGMENT_TX"||e.type=="FRAGMENT_RX") && ~contains(string(e.detail),"ctrl")
+            n_data_frags=n_data_frags+1;
+        end
+    end
+end
+frag_rate=min(1,n_data_frags/200);
 for i=1:n
     a=candidates(i); X(i,1:5)=double(a.kind==["COMMIT_LOCAL" "REQUEST_REMOTE_COMMIT" "RELEASE_EDGE" "REJECT_WORKFLOW" "STOP_PLAN"]);
     X(i,6)=min(2,originQ/(originHz*max(W.rel_deadline_s,1e-9)));
@@ -11,11 +21,12 @@ for i=1:n
         adv=latestAdv(W,a.helper_id);
         if ~isempty(adv)
             X(i,9)=min(2,(adv.queued_cycles+adv.admitted_pending_cycles)/max(adv.available_cpu_hz*W.rel_deadline_s,1));
-            X(i,10)=min(2,adv.available_cpu_hz/originHz);
+            X(i,10)=adv.available_cpu_hz/max([W.cpu.available_hz]);
         end
     end
     X(i,11:14)=stageOneHot(a.stage_id);
     X(i,15)=a.helper_id/max(numel(W.cpu),1);
+    X(i,16)=frag_rate;
 end
 
 function z=stageOneHot(stage)

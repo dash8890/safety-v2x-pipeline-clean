@@ -1,12 +1,17 @@
 function stationManagement = spv2xWiLabReception(stationManagement,timeManagement,txIDs,fate,~)
 %SPV2XWILABRECEPTION Consume WiLab PHY receiver fate rows for tagged packets.
-s=stationManagement.spv2x; nowMs=timeManagement.timeNow*1000;
+s=stationManagement.spv2x;
+if startsWith(string(s.policy),"workflow_")
+    stationManagement=spv2xWorkflowBridge('reception',stationManagement,timeManagement,txIDs,fate);
+    return
+end
+nowMs=timeManagement.timeNow*1000;
 for tx=txIDs(:)'
     meta=s.current(tx); if ~meta.valid, continue; end
     rows=fate(fate(:,1)==tx,:);
     for i=1:size(rows,1)
         rx=rows(i,2); success=logical(rows(i,5)) && nowMs<=meta.deadline_ms;
-        if s.log_radio_events
+        if s.log_radio_events && meta.kind=="compute"
             s.radio_rows(end+1,:)={s.scenario_id,nowMs,tx,meta.packet_id,char(meta.kind), ...
                 meta.task_id,char(meta.stage),meta.fragment,rx,rows(i,4),rows(i,3),logical(rows(i,5)),char(s.world)};
         end
@@ -37,7 +42,13 @@ for tx=txIDs(:)'
                 s.tasks(tid).output_received=s.tasks(tid).output_received+1;
                 if s.tasks(tid).output_received==s.tasks(tid).output_fragments
                     s.tasks(tid).result_delivered_ms=nowMs;
-                    if nowMs<=s.tasks(tid).deadline_ms, s.tasks(tid).status="completed"; else, s.tasks(tid).status="late_result"; end
+                    if nowMs<=s.tasks(tid).deadline_ms
+                        s.tasks(tid).status="completed";
+                        if ~isfield(s,'reward_rows'), s.reward_rows=cell(0,5); end
+                        s.reward_rows(end+1,:)={s.scenario_id,tid,nowMs,1,"completion"}; %#ok<AGROW>
+                    else
+                        s.tasks(tid).status="late_result";
+                    end
                 end
             end
         end

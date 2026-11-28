@@ -213,7 +213,7 @@ class WorkflowMDP:
 
     @property
     def obs_dim(self) -> int:
-        return 16
+        return 15
 
     def _obs(self) -> np.ndarray:
         qload = np.array([self._queued_cycles(v) for v in range(N_VEH)], dtype=np.float64)

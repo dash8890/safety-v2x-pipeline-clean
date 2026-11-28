@@ -71,6 +71,9 @@ W.phase_split_s=getf(cfg.workflow,'phase_split_s',0.16);
 W.advertisement_ttl_s=getf(cfg.workflow,'advertisement_ttl_s',0.30);
 W.advertisement_period_s=getf(cfg.workflow,'advertisement_period_s',0.10);
 W.fresh_ddqn_epsilon=getf(cfg.workflow,'fresh_ddqn_epsilon',0);
+if isfield(cfg.workflow,'fresh_weights_json')
+    W.fresh_weights_json=string(cfg.workflow.fresh_weights_json);
+end
 if isfield(cfg.workflow,'fresh_bc_weights_json')
     W.fresh_bc_weights_json=string(cfg.workflow.fresh_bc_weights_json);
 elseif string(s.policy)=="workflow_fresh_ddqn"

@@ -1,4 +1,4 @@
-param([ValidateRange(1,9)][int]$RunId = 1)
+param([ValidateRange(1,99)][int]$RunId = 1)
 $ErrorActionPreference='Stop'
 $root='C:\Users\dash\Downloads\NewProject\safety-v2x-pipeline\SafetyOffloading\workflow_v2'
 $python='C:\Users\dash\AppData\Local\Programs\Python\Python311\python.exe'
@@ -10,6 +10,12 @@ $weights=Join-Path $root 'drl\outputs\fresh_candidate_bc.json'
 $seedBase=3000+10000*($RunId-1)
 $workerRoot=Join-Path $runRoot 'worker'
 $worker=$null
+# Shuffled seed assignment: use known-difficulty pool 83001-83060, shuffled by RunId.
+# Breaks the sequential difficulty gradient discovered in run09 (seeds correlate with
+# scenario hardness when assigned in order). Each run gets a reproducible shuffle.
+$rng=[System.Random]::new($RunId * 7919)
+$rolloutSeeds=[int[]](83001..83060)
+for($i=$rolloutSeeds.Length-1;$i -gt 0;$i--){$j=$rng.Next($i+1);$tmp=$rolloutSeeds[$i];$rolloutSeeds[$i]=$rolloutSeeds[$j];$rolloutSeeds[$j]=$tmp}
 # Total optimizer updates for the BC-retention schedule.
 # 60 rollouts = 12 blocks x 80 epochs = 960 updates; use 2560 so schedule
 # is consistent with the 80-rollout continuation path if the run is extended.
@@ -53,7 +59,8 @@ function Invoke-Rollout([int]$rollout,[int]$maxRetries=3) {
  $failed=Join-Path $workerRoot ('failed_{0:D3}.json' -f $rollout)
  for($attempt=1;$attempt -le $maxRetries;$attempt++){
   Remove-Item -LiteralPath $done,$failed -Force -ErrorAction SilentlyContinue
-  $job=@{rollout_id=$rollout;weights_json=$weights.Replace('\','/');seed_base=$seedBase}|ConvertTo-Json -Compress
+  $perRolloutSeedBase=$rolloutSeeds[$rollout-1]-$rollout
+  $job=@{rollout_id=$rollout;weights_json=$weights.Replace('\','/');seed_base=$perRolloutSeedBase}|ConvertTo-Json -Compress
   $tmp=Join-Path $workerRoot 'job.tmp'; $jobPath=Join-Path $workerRoot 'job.json'
   Set-Content -LiteralPath $tmp -Value $job -NoNewline; Move-Item -LiteralPath $tmp -Destination $jobPath -Force
   $watch=[System.Diagnostics.Stopwatch]::StartNew()
@@ -100,7 +107,7 @@ function Invoke-Update([int]$update,[int]$epochs,[bool]$validate) {
  $weights=$policy
 }
 New-Item -ItemType Directory -Force -Path $runRoot|Out-Null
-@{architecture='dueling_ddqn';executor='persistent_matlab_worker';run_id=$RunId;physical_seed_base=$seedBase;training_rollouts=60;optimizer_updates=960;validation_simulations=8}|ConvertTo-Json|Set-Content (Join-Path $runRoot 'run_manifest.json')
+@{architecture='dueling_ddqn';executor='persistent_matlab_worker';run_id=$RunId;physical_seed_base=$seedBase;training_rollouts=60;optimizer_updates=480;validation_simulations=8}|ConvertTo-Json|Set-Content (Join-Path $runRoot 'run_manifest.json')
 
 # Startup stagger: offset runs by ~3 rollouts each so they never peak simultaneously.
 $staggerSec=($RunId-1)*420

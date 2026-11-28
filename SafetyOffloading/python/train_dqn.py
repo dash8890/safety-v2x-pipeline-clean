@@ -19,6 +19,16 @@ def forward(x,w1,b1,w2,b2):
     return h,q
 def valid_actions(row): return list(range(min(len(ACTIONS),2+int(num(row,"candidate_helpers")))))
 
+def immediate_reward(row):
+    """Deadline utility with an explicit penalty for measured safety harm."""
+    completed=num(row,"completed_on_time")
+    latency=num(row,"task_latency_ms"); deadline=max(1.0,num(row,"deadline_ms"))
+    slack=max(0.0,1.0-latency/deadline) if completed else 0.0
+    action=int(num(row,"action_index"))
+    safety_penalty=15.0*num(row,"harm_rate") if action>=2 else 0.0
+    rejection_penalty=2.0 if action==0 else 0.0
+    return completed*(1.0+0.25*slack)-safety_penalty-rejection_penalty
+
 def main():
     p=argparse.ArgumentParser(); p.add_argument("dataset",type=Path); p.add_argument("--output",type=Path,required=True)
     p.add_argument("--epochs",type=int,default=400); p.add_argument("--hidden",type=int,default=32)
@@ -46,7 +56,7 @@ def main():
     for epoch in range(a.epochs):
         random.shuffle(tr)
         for r,nxt in tr:
-            x=state(r); hidden,q=forward(x,w1,b1,w2,b2); action=int(num(r,"action_index")); reward=num(r,"completed_on_time")
+            x=state(r); hidden,q=forward(x,w1,b1,w2,b2); action=int(num(r,"action_index")); reward=immediate_reward(r)
             target=reward
             if nxt is not None:
                 _,nq=forward(state(nxt),tw1,tb1,tw2,tb2); target+=gamma*max(nq[j] for j in valid_actions(nxt))
@@ -67,7 +77,8 @@ def main():
         return {"rows":len(data),"behavior_action_match":correct/max(1,len(data)),"chosen_actions":dict(zip(ACTIONS,chosen))}
     artifact={"model":"offline_dqn","features":FEATURES,"actions":ACTIONS,"means":means,"scales":scales,
               "hidden_weights":w1,"hidden_bias":b1,"output_weights":w2,"output_bias":b2,
-              "training":{"epochs":a.epochs,"discount":gamma,"learning_rate":lr,"train_rows":len(train),"held_out_seed":test_seed},
+              "training":{"epochs":a.epochs,"discount":gamma,"learning_rate":lr,"train_rows":len(train),"held_out_seed":test_seed,
+                          "reward":"deadline_success + 0.25*deadline_slack - 15*offload_harm_rate - 2*rejected"},
               "evaluation":evaluate(test),"risk_shield_required":True}
     a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(artifact,indent=2),encoding="utf-8")
     print(json.dumps(artifact["evaluation"],indent=2))

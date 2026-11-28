@@ -9,9 +9,11 @@ for i=1:numel(W.stages)
     st=W.stages(i);
     if st.status~="ELIGIBLE" || ~predsDone(W,st), continue; end
     candidates(end+1)=action("COMMIT_LOCAL",st.workflow_id,st.stage_id,0,0,"local"); %#ok<AGROW>
-    for helper=1:numel(W.cpu)
-        if helper==W.origin_id || ~observedReachable(W,helper), continue; end
-        candidates(end+1)=action("REQUEST_REMOTE_COMMIT",st.workflow_id,st.stage_id,helper,0,"request_only"); %#ok<AGROW>
+    if hasCommitment(W,st.workflow_id)
+        for helper=1:numel(W.cpu)
+            if helper==W.origin_id || ~observedReachable(W,helper), continue; end
+            candidates(end+1)=action("REQUEST_REMOTE_COMMIT",st.workflow_id,st.stage_id,helper,0,"request_only"); %#ok<AGROW>
+        end
     end
 end
 for i=1:numel(W.edges)

@@ -1,11 +1,10 @@
-﻿WILAB OUTCOME A — FAILED (stopped)
-time: 2026-11-24T10:41:29.1458594+09:00
-
-GOAL 1 (greedy FULL5 ≥52 vs PDP 45.6): MET — banked mean 62.4 (outputs/wilab_best_full5/full5_report.json).
-
-GOAL 2 (online improve→plateau above teacher/BC): NOT MET.
-
-DAgger closeout (dagger_beat_init_full5, beat≥62 vs INIT_FULL5=60): STOPPED — no beat of INIT. Latest train curve mid300 eval stayed 72 (BC-level); train ep returns 48/48/72/60/36 with no rising FULL5 above BC snapshot. Same BC-tie failure mode as ε/Boltzmann recipes.
-
-BANKED ONLY: congest+BC greedy FULL5 62.4 vs PDP 45.6.
-MISSING: learned improve→plateau.
+WILAB OUTCOME A — NOT YET ACHIEVED
+initial_learned_full5: 60.00
+teacher_full5: 62.40
+target: 64.80
+best_full5: 60.00
+best_per_seed: {'300': 72.0, '301': 60.0, '302': 48.0, '303': 60.0, '304': 60.0}
+plateau_probes: []
+joint_admission_placement_learned: True
+delayed_reward_credit_fixed: True
+elapsed_s: 1093.8

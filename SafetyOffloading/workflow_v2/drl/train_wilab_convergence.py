@@ -129,6 +129,19 @@ def policy_means(policy: str) -> dict[int, float]:
 
 
 def _kill_proc(proc: subprocess.Popen) -> None:
+    # MATLAB on Windows can outlive its launcher.  Kill only the process tree
+    # started for this case; never use the former global taskkill MATLAB.exe.
+    if proc.poll() is None and __import__("os").name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+            )
+        except Exception:
+            pass
     try:
         proc.kill()
         proc.wait(timeout=10)
@@ -144,6 +157,8 @@ def run_wilab(
     collect: bool,
     timeout_s: int = 240,
     dagger_beta: float = 0.0,
+    workflow_overrides: dict | None = None,
+    policy: str = "workflow_causal_ddqn",
 ) -> dict:
     """Run one WiLab episode. Accept summary.json even if MATLAB hangs on exit.
     Auto-retry once on stall/hang-with-no-summary.
@@ -154,16 +169,24 @@ def run_wilab(
         cfg_data["workflow"]["ddqn_eps"] = float(eps)
         cfg_data["workflow"]["ddqn_dagger_beta"] = float(dagger_beta)
         cfg_data["workflow"]["ddqn_weights_json"] = str(WEIGHTS).replace("\\", "/")
+        admission_weights = globals().get("ADMISSION_WEIGHTS")
+        placement_weights = globals().get("PLACEMENT_WEIGHTS")
+        if admission_weights is not None:
+            cfg_data["workflow"]["ddqn_admission_weights_json"] = str(admission_weights).replace("\\", "/")
+        if placement_weights is not None:
+            cfg_data["workflow"]["ddqn_placement_weights_json"] = str(placement_weights).replace("\\", "/")
         cfg_data["workflow"]["collect_transitions"] = bool(collect)
         cfg_data["workflow"]["collect_demos"] = False
         cfg_data["workflow"]["drop_reward_bonus"] = 0.0
+        if workflow_overrides:
+            cfg_data["workflow"].update(workflow_overrides)
         cfg.write_text(json.dumps(cfg_data, indent=2), encoding="utf-8")
         if case.exists():
             shutil.rmtree(case, ignore_errors=True)
         case.mkdir(parents=True, exist_ok=True)
         script = (
             f"addpath(genpath('{WF2.as_posix()}')); "
-            f"try; s=runR3PilotCase('{case.as_posix()}','workflow_causal_ddqn',{seed},"
+            f"try; s=runR3PilotCase('{case.as_posix()}','{policy}',{seed},"
             f"'config','{cfg.as_posix()}','radio_mode','wilab_mode2'); disp(jsonencode(s)); "
             f"catch ME; disp(getReport(ME)); exit(1); end; exit(0);"
         )
@@ -303,7 +326,9 @@ def eval_parallel(seeds: list[int] | None = None) -> dict[int, float]:
     """Parallel FULL5 — separate case dirs; kill only that seed's MATLAB."""
     seeds = list(seeds) if seeds is not None else list(EVAL_SEEDS)
     out: dict[int, float] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(seeds)) as ex:
+    # Five MATLAB instances contend for memory and can leave stalled children.
+    # Two instances are faster end-to-end on this workstation and deterministic.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(2, len(seeds))) as ex:
         futs = {ex.submit(eval_one, s): s for s in seeds}
         for fut in concurrent.futures.as_completed(futs):
             s = futs[fut]

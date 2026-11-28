@@ -73,17 +73,17 @@ class NoisyLinear(nn.Module):
 class DuelingQ(nn.Module):
     """Q(s,a)=V(s)+A(s,a)-mean_a A(s,a), for a variable candidate set.
 
-    Value head is deterministic; advantage head uses NoisyLinear layers.
-    Noise forces the advantage head to learn meaningful per-action differentials:
-    the signal must be large enough to overcome injected noise, preventing the
-    advantage stream from collapsing to near-zero (pure value-function mode).
+    Value head and advantage head both use standard nn.Linear layers.
+    Exploration is handled by epsilon/coverage annealing in the rollout;
+    NoisyLinear was removed because its sigma failed to anneal, causing the
+    advantage head to oscillate increasingly after block 9.
     """
     def __init__(self):
         super().__init__()
         self.encoder = nn.Sequential(nn.Linear(16, 96), nn.ReLU())
         self.value = nn.Sequential(nn.Linear(96, 64), nn.ReLU(), nn.Linear(64, 1))
         self.advantage = nn.Sequential(
-            NoisyLinear(192, 64), nn.ReLU(), NoisyLinear(64, 1))
+            nn.Linear(192, 64), nn.ReLU(), nn.Linear(64, 1))
 
     def sample_noise(self):
         for m in self.modules():
@@ -225,12 +225,14 @@ def main():
         losses = []
         abs_td_errors = []
         sampled_rewards = []
-        for idx in draw(priorities, rare, max(512, len(data) // 2), rng):
+        global_update = args.global_update_start + epoch
+        for idx in draw(priorities, rare, min(2000, max(512, len(data) // 2)), rng):
             row = data[idx]
             sampled_rewards.append(float(row["reward"]))
             cur = torch.tensor(row["cur"]); nxt = torch.tensor(row["next"])
             q.sample_noise()
-            qa = q(cur)[int(row["action"])]
+            _val, _adv = q.components(cur)
+            qa = (_val + _adv - _adv.mean())[int(row["action"])]
             with torch.no_grad():
                 if row["done"] or len(nxt) == 0:
                     y = torch.tensor(float(row["reward"]))
@@ -238,16 +240,20 @@ def main():
                     online = q(nxt); pick = int(online.argmax())
                     y = torch.tensor(float(row["reward"])) + GAMMA3 * target(nxt)[pick]
             td = qa - y
-            loss = F.smooth_l1_loss(qa, y)
+            # λ=0.01 through first half (blocks 1-6), then linear decay to 0 by block 12.
+            # First half: same as run13 which got TU=23 at block 8.
+            # Second half: decaying so late training is free (run11 stability pattern).
+            half = args.total_updates // 2
+            if global_update < half:
+                lam = 0.01
+            else:
+                lam = max(0.0, 0.01 * 2.0 * (1.0 - global_update / args.total_updates))
+            loss = F.smooth_l1_loss(qa, y) + lam * _adv.mean() ** 2
             opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(q.parameters(), 5); opt.step()
             priorities[idx] = abs(float(td.detach())) + 1e-3
             losses.append(float(loss.detach()))
             abs_td_errors.append(abs(float(td.detach())))
-        # BC retention decays globally over the full 1,280-update training budget.
-        # global_update is the cumulative update index across all blocks; it never
-        # resets between block calls, so the BC anchor persists through mid-training
-        # rather than expiring within the first block.
-        global_update = args.global_update_start + epoch
+        # BC retention decays globally over the full training budget.
         retention = max(0.0, args.bc_weight * max(0.0, 1.0 - global_update / args.total_updates))
         if retention > 0 and demos:
             for x, y in [demos[k] for k in rng.choice(len(demos), min(128, len(demos)), replace=False)]:

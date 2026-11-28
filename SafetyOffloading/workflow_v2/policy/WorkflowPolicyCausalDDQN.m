@@ -1,8 +1,7 @@
 function acts=WorkflowPolicyCausalDDQN(W)
-% Outcome A closeout policy:
-%  - Admission: hard DROP-low + congest shield (NOT learned)
-%  - Placement: DAgger mix — with prob beta follow congest teacher placement,
-%    else greedy DDQN over {LOCAL,H2,H3,HOLD}. No ε/Boltzmann suicide.
+% Outcome A policy: one learned joint admission/placement controller.
+% DAgger may select the teacher action while collecting experience, but greedy
+% evaluation exposes all legal actions (including DROP) to the DDQN.
 acts=struct('type',{},'workflow_id',{},'stage_id',{},'helper_id',{},'edge_name',{},'detail',{});
 [obs,mask,st]=WorkflowCausalObs(W);
 if isempty(st)
@@ -14,24 +13,15 @@ wf=wfOf(W,st.workflow_id);
 eps=0; if isfield(W,'ddqn_eps'), eps=double(W.ddqn_eps); end %#ok<NASGU>
 beta=0; if isfield(W,'ddqn_dagger_beta'), beta=double(W.ddqn_dagger_beta); end
 
-forceDrop=false;
-dropWhy="ddqn_drop";
-if st.stage_id=="A" && wf.value<vh-1e-9 && mask(5)
-    forceDrop=true;
-    dropWhy="ddqn_drop_low_hard";
-    mask(:)=false; mask(5)=true;
-elseif st.stage_id=="A" && wf.value>=vh-1e-9 && shouldBlockHigh(W,vh)
-    forceDrop=true;
-    dropWhy="ddqn_drop_admit_shield";
-    mask(:)=false; mask(5)=true;
-end
-
-if forceDrop
-    aIdx=5;
+dropWhy="ddqn_drop_learned";
+teacherAdmission=false;
+if isfield(W,'ddqn_teacher_admission'), teacherAdmission=logical(W.ddqn_teacher_admission); end
+if teacherAdmission && st.stage_id=="A"
+    aIdx=teacherAction(W,st,mask,wf,vh);
 elseif beta>0 && rand()<beta
-    aIdx=teacherPlacement(W,st,mask);
+    aIdx=teacherAction(W,st,mask,wf,vh);
 else
-    aIdx=duelingGreedyPlace(W,obs,mask,st,wf,vh);
+    aIdx=duelingGreedy(W,obs,mask,st);
 end
 
 ddqnLastSet(struct('obs',obs(:)','mask',double(mask(:)'),'action_idx',aIdx, ...
@@ -46,16 +36,19 @@ switch aIdx
 end
 end
 
-function aIdx=duelingGreedyPlace(W,obs,mask,st,wf,vh)
-% Greedy placement only — DROP banned unless admission already forced it.
+function aIdx=duelingGreedy(W,obs,mask,st)
+% Greedy joint action over every action allowed by the causal action mask.
 legal=find(mask(:));
 if isempty(legal), aIdx=1; return; end
-w=getWeights(W);
+if st.stage_id=="A"
+    w=getWeights(W,"admission");
+else
+    w=getWeights(W,"placement");
+end
 h=max(0,w.fc1w*obs(:)+w.fc1b);
 h=max(0,w.fc2w*h+w.fc2b);
 v=w.vw*h+w.vb; adv=w.aw*h+w.ab;
 q=v+adv-mean(adv); q(~mask)=-1e9;
-q(5)=-1e9; % placement-only learning
 if ~any(q>-1e8)
     if mask(1), aIdx=1; else, aIdx=legal(1); end
     return
@@ -63,7 +56,15 @@ end
 [~,aIdx]=max(q);
 end
 
-function aIdx=teacherPlacement(W,st,mask)
+function aIdx=teacherAction(W,st,mask,wf,vh)
+% DAgger teacher supplies admission and placement labels.  It guides data
+% collection only; it is not active during the final beta=0 evaluation.
+if st.stage_id=="A" && wf.value<vh-1e-9 && mask(5)
+    aIdx=5; return
+end
+if st.stage_id=="A" && wf.value>=vh-1e-9 && shouldBlockHigh(W,vh) && mask(5)
+    aIdx=5; return
+end
 % Congest teacher placement: A/D local; B/C mobility EFT among legal.
 if st.stage_id=="A" || st.stage_id=="D"
     if mask(1), aIdx=1; return; end
@@ -97,10 +98,50 @@ end
 
 function tf=shouldBlockHigh(W,vh)
 nH=countActiveHigh(W,vh);
-if nH<3, tf=false; return; end
 held=countHeldEdges(W);
 minSlack=minActiveHighSlack(W,vh);
-tf = (nH>=3 && held>=4 && minSlack<0.10) || (nH>=6);
+activeCap=6;
+if isfield(W,'ddqn_high_active_cap'), activeCap=double(W.ddqn_high_active_cap); end
+tf = (nH>=3 && held>=4 && minSlack<0.10) || ...
+     (countActiveAll(W)>=5 && held>=2 && helperBusy(W,3) && minSlack<0.22) || ...
+     recentHighDrop(W,vh,0.020) || ...
+     (nH>=activeCap);
+end
+
+function tf=recentHighDrop(W,vh,windowS)
+tf=false;
+if ~isfield(W,'decision_log') || isempty(W.decision_log), return; end
+idx=[];
+for i=numel(W.decision_log):-1:1
+    if string(W.decision_log(i).action)~="DROP", continue; end
+    dwf=wfOf(W,W.decision_log(i).workflow_id);
+    if dwf.value<vh-1e-9, continue; end
+    idx(end+1)=i; %#ok<AGROW>
+    if numel(idx)>=2, break; end
+end
+if isempty(idx), return; end
+d=W.decision_log(idx(1));
+if W.now_s-d.t_s>windowS+1e-9 || string(d.action)~="DROP", return; end
+% One follow-up drop only; do not let a burst recursively suppress all work.
+if numel(idx)>=2
+    p=W.decision_log(idx(2));
+    if d.t_s-p.t_s<=2*windowS+1e-9, return; end
+end
+tf=true;
+end
+
+function n=countActiveAll(W)
+n=0;
+for i=1:numel(W.workflows)
+    if W.workflows(i).status=="ACTIVE", n=n+1; end
+end
+end
+
+function tf=helperBusy(W,v)
+tf=false;
+if v>numel(W.cpu), return; end
+if ~isempty(W.cpu(v).running), tf=true; return; end
+if ~isempty(W.cpu(v).queue), tf=true; end
 end
 
 function n=countActiveHigh(W,vh)
@@ -142,17 +183,33 @@ global DDQN_LAST_DECISION
 DDQN_LAST_DECISION=s;
 end
 
-function w=getWeights(W)
-persistent Wcache Wpath
-want=""; if isfield(W,'ddqn_weights_json'), want=string(W.ddqn_weights_json); end
-if isempty(Wcache) || (strlength(want)>0 && (isempty(Wpath) || Wpath~=want))
-    Wcache=loadWeights(W); Wpath=want;
+function w=getWeights(W,head)
+% Separate learned heads prevent placement TD updates from catastrophically
+% forgetting admission.  Both default to the joint checkpoint for backwards
+% compatibility.
+persistent Acache Apath Pcache Ppath
+want="";
+if head=="admission" && isfield(W,'ddqn_admission_weights_json')
+    want=string(W.ddqn_admission_weights_json);
+elseif head=="placement" && isfield(W,'ddqn_placement_weights_json')
+    want=string(W.ddqn_placement_weights_json);
+elseif isfield(W,'ddqn_weights_json')
+    want=string(W.ddqn_weights_json);
 end
-w=Wcache;
+if head=="admission"
+    if isempty(Acache) || isempty(Apath) || Apath~=want
+        Acache=loadWeightsPath(want,W); Apath=want;
+    end
+    w=Acache;
+else
+    if isempty(Pcache) || isempty(Ppath) || Ppath~=want
+        Pcache=loadWeightsPath(want,W); Ppath=want;
+    end
+    w=Pcache;
+end
 end
 
-function w=loadWeights(W)
-path=""; if isfield(W,'ddqn_weights_json'), path=string(W.ddqn_weights_json); end
+function w=loadWeightsPath(path,W)
 if strlength(path)==0 || ~isfile(path)
     root=fileparts(fileparts(mfilename('fullpath')));
     path=fullfile(root,'drl','outputs','ddqn_wilab_congest.weights.json');

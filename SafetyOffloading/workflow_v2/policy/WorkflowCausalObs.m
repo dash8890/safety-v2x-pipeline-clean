@@ -1,6 +1,8 @@
 function [obs,mask,st]=WorkflowCausalObs(W)
-%WORKFLOWCAUSALOBS 16-D causal observation + 5-action mask matching Python MDP.
-obs=zeros(16,1);
+%WORKFLOWCAUSALOBS 18-D causal observation + 5-action mask.
+% Features 17/18 close the former admission-state aliasing: the congest
+% teacher depends on held-edge count and minimum active high-value slack.
+obs=zeros(18,1);
 mask=true(5,1);
 st=pickEligibleEDF(W);
 if isempty(st)
@@ -33,16 +35,24 @@ nRemote=countRemoteDone(W)/max(nArr*2,1);
 nSucc=countStatus(W,"SUCCEEDED")/nArr;
 valN=wf.value/vh;
 nElig=countEligible(W)/8.0;
+heldN=countHeld(W)/8.0;
+minHighSlackN=minHighSlack(W,vh,deadlineS);
 
 obs=[qnorm(1);qnorm(2);qnorm(3);c2;c3; ...
     max(min(slack,2),-1);stype;cyclesN;nActive;W.now_s/horizonS; ...
-    f10;f11;nRemote;nSucc;valN;max(min(nElig,1),0)];
+    f10;f11;nRemote;nSucc;valN;max(min(nElig,1),0); ...
+    max(min(heldN,1),0);minHighSlackN];
 
-% Action mask: A/D local+drop; B/C local/hold/helpers if contact
+% Action mask: A is the admission decision; D must complete locally.  DROP at
+% D is strictly dominated because A/B/C costs are already sunk and completion
+% has non-negative value.  B/C expose placement and hold actions.
 mask(:)=true;
-if st.stage_id=="A" || st.stage_id=="D"
+if st.stage_id=="A"
     mask(:)=false; mask(1)=true; mask(5)=true; % LOCAL, DROP
+elseif st.stage_id=="D"
+    mask(:)=false; mask(1)=true; % complete the admitted workflow
 else
+    mask(5)=false; % admission/drop is decided once, at stage A
     if size(W.contact,1)<2 || ~W.contact(W.origin_id,2), mask(2)=false; end
     if size(W.contact,1)<3 || ~W.contact(W.origin_id,3), mask(3)=false; end
 end
@@ -90,6 +100,29 @@ for i=1:numel(W.stages)
         n=n+1;
     end
 end
+end
+
+function n=countHeld(W)
+n=0;
+for i=1:numel(W.edges)
+    if W.edges(i).status=="READY_HELD" || W.edges(i).status=="WAIT_ADMISSION"
+        n=n+1;
+    end
+end
+end
+
+function s=minHighSlack(W,vh,deadlineS)
+s=2;
+found=false;
+for i=1:numel(W.workflows)
+    wf=W.workflows(i);
+    if wf.status=="ACTIVE" && wf.value>=vh-1e-9
+        s=min(s,(wf.absolute_deadline_s-W.now_s)/max(deadlineS,1e-9));
+        found=true;
+    end
+end
+if ~found, s=2; end
+s=max(min(s,2),-1);
 end
 
 function t=stageType(sid)

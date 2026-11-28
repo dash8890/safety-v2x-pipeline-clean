@@ -38,6 +38,29 @@ if s.policy=="risk_heuristic"
     assert(isfile(modelPath),"SafetyOffloading:MissingRiskModel","Risk model not found: %s",modelPath);
     s.risk_model=jsondecode(fileread(modelPath));
 end
+% P7 calibrated estimators (shared by calibrated myopic and P8 learners; P6 unchanged).
+s.p7_models=struct();
+if ismember(s.policy,["risk_myopic_p7","masked_ddqn_p8","learn_assist_p8","traj_constrained_p8"])
+    safetyRoot=fileparts(fileparts(mfilename('fullpath')));
+    s.p7_models.action_risk=loadP7Json(safetyRoot,cfg,"action_risk_model_path","models/p7_action_risk_calibrated.json");
+    s.p7_models.completion=loadP7Json(safetyRoot,cfg,"completion_model_path","models/p7_completion_calibrated.json");
+    s.p7_models.latency=loadP7Json(safetyRoot,cfg,"latency_model_path","models/p7_latency_calibrated.json");
+end
+% P8 learning artifacts (optional; missing file => legal stub/fallback behavior).
+s.p8_ddqn=struct(); s.p8_value=struct(); s.p8_traj=struct();
+s.traj_exposure_spent=0; s.traj_time_frac_remaining=1;
+if s.policy=="masked_ddqn_p8"
+    safetyRoot=fileparts(fileparts(mfilename('fullpath')));
+    s.p8_ddqn=loadP7Json(safetyRoot,cfg,"p8_ddqn_model_path","models/p8_masked_ddqn.json");
+end
+if s.policy=="learn_assist_p8"
+    safetyRoot=fileparts(fileparts(mfilename('fullpath')));
+    s.p8_value=loadP7Json(safetyRoot,cfg,"p8_value_model_path","models/p8_value_assist.json");
+end
+if s.policy=="traj_constrained_p8"
+    safetyRoot=fileparts(fileparts(mfilename('fullpath')));
+    s.p8_traj=loadP7Json(safetyRoot,cfg,"p8_traj_model_path","models/p8_trajectory_constraint.json");
+end
 s.next_tick_s = 0;
 s.packet_counter = 0;
 s.evaluation_range_m = min(cfg.safety.receiver_range_m,max(phyParams.Raw));
@@ -47,32 +70,19 @@ s.meta_queue = cell(maxID,1);
 s.cpu_queue = cell(maxID,1);
 s.cpu_active = zeros(maxID,1);
 s.cpu_finish_s = inf(maxID,1);
-s.cpu_rate = zeros(maxID,1);
-for v = ids'
-    u = stableUniform(simParams.seed,"wilab-cpu",v);
-    s.cpu_rate(v) = cfg.compute.cpu_cycles_per_s_min + ...
-        u*(cfg.compute.cpu_cycles_per_s_max-cfg.compute.cpu_cycles_per_s_min);
-end
-if isfield(cfg.compute,'cpu_override_ids')
-    overrideIDs=double(cfg.compute.cpu_override_ids(:));
-    overrideRates=double(cfg.compute.cpu_override_cycles_per_s(:));
-    assert(numel(overrideIDs)==numel(overrideRates), ...
-        'SafetyOffloading:CPUOverride','CPU override IDs and rates must have equal length');
-    for oi=1:numel(overrideIDs)
-        assert(ismember(overrideIDs(oi),ids),'SafetyOffloading:CPUOverride', ...
-            'CPU override vehicle %d is not active',overrideIDs(oi));
-        s.cpu_rate(overrideIDs(oi))=overrideRates(oi);
-    end
-end
 
 emptyMeta = struct('valid',false,'packet_id',0,'kind',"",'task_id',0, ...
     'stage',"",'fragment',0,'fragments',0,'src',0,'dst',0,'created_ms',0, ...
     'deadline_ms',0,'seq',0,'flow_id',0,'bytes',0);
 s.current = repmat(emptyMeta,maxID,1);
 s.empty_meta = emptyMeta;
-s.safety_rows = zeros(0,12);
+estimatedPackets=ceil(simParams.simulationTime/(cfg.safety.generation_interval_ms/1000))*numel(ids);
+estimatedReceivers=min(numel(ids)-1,max(1,ceil(3*simParams.rho*s.evaluation_range_m/1000)));
+estimatedExposures=max(1024,ceil(estimatedPackets*estimatedReceivers*s.receiver_sample_fraction*1.10));
+s.safety_rows=zeros(estimatedExposures,12);
+s.safety_row_cursor=0;
 s.radio_rows = cell(0,13);
-s.decision_rows = cell(0,20);
+s.decision_rows = cell(0,25);
 s.output_folder = string(outParams.outputFolder);
 
 if isfield(cfg.compute,'origin_ids')
@@ -84,8 +94,40 @@ else
     originIndex = unique(round(linspace(1,numel(ids),originCount)));
     origins = ids(originIndex);
 end
+s.origin_ids=origins(:);
+s.helper_ids=setdiff(ids,origins);
+s.cpu_nominal_rate=zeros(maxID,1);
+s.cpu_background_utilization=zeros(maxID,1);
+for v=ids'
+    s.cpu_nominal_rate(v)=roleCpuRate(cfg.compute,simParams.seed,v,ismember(v,origins));
+end
+if isfield(cfg.compute,'helper_background_utilization')
+    background=double(cfg.compute.helper_background_utilization);
+    assert(isscalar(background) && background>=0 && background<1, ...
+        'SafetyOffloading:BackgroundUtilization', ...
+        'helper_background_utilization must be in [0,1)');
+    s.cpu_background_utilization(s.helper_ids)=background;
+end
+if isfield(cfg.compute,'cpu_override_ids')
+    overrideIDs=double(cfg.compute.cpu_override_ids(:));
+    overrideRates=double(cfg.compute.cpu_override_cycles_per_s(:));
+    assert(numel(overrideIDs)==numel(overrideRates), ...
+        'SafetyOffloading:CPUOverride','CPU override IDs and rates must have equal length');
+    for oi=1:numel(overrideIDs)
+        assert(ismember(overrideIDs(oi),ids),'SafetyOffloading:CPUOverride', ...
+            'CPU override vehicle %d is not active',overrideIDs(oi));
+        s.cpu_nominal_rate(overrideIDs(oi))=overrideRates(oi);
+    end
+end
+% Background work is modeled as a persistent reserved CPU share.  Every
+% task sees the residual service rate, so helper contention is reproducible
+% and does not reset at task decision epochs.
+s.cpu_rate=s.cpu_nominal_rate.*(1-s.cpu_background_utilization);
 releaseMs=[]; releaseOrigins=[];
-if isfield(cfg.compute,'deterministic_release_ms')
+if startsWith(s.policy,"workflow_")
+    % Workflow arrivals are owned by WorkflowEngine (R3); skip binary task list.
+    releaseMs=zeros(0,1); releaseOrigins=zeros(0,1);
+elseif isfield(cfg.compute,'deterministic_release_ms')
     releaseMs=double(cfg.compute.deterministic_release_ms(:));
     if isfield(cfg.compute,'deterministic_origin_ids')
         releaseOrigins=double(cfg.compute.deterministic_origin_ids(:));
@@ -101,12 +143,15 @@ elseif isfield(cfg.compute,'arrival_model') && string(cfg.compute.arrival_model)
     assert(isfield(cfg.compute,'arrival_rate_tasks_per_s') && cfg.compute.arrival_rate_tasks_per_s>0, ...
         'SafetyOffloading:ArrivalRate','Poisson workload requires arrival_rate_tasks_per_s > 0');
     for o=1:numel(origins)
-        timeMs=0; arrivalIndex=0;
+        taskStartMs=0; taskStopMs=simParams.simulationTime*1000;
+        if isfield(cfg.compute,'task_start_ms'), taskStartMs=double(cfg.compute.task_start_ms); end
+        if isfield(cfg.compute,'task_stop_ms'), taskStopMs=double(cfg.compute.task_stop_ms); end
+        timeMs=taskStartMs; arrivalIndex=0;
         while true
             arrivalIndex=arrivalIndex+1;
             u=stableUniform(simParams.seed,"task-arrival",origins(o),arrivalIndex);
             timeMs=timeMs+(-log(max(u,realmin))/cfg.compute.arrival_rate_tasks_per_s)*1000;
-            if timeMs>=simParams.simulationTime*1000, break; end
+            if timeMs>=min(taskStopMs,simParams.simulationTime*1000), break; end
             releaseMs(end+1,1)=timeMs; %#ok<AGROW>
             releaseOrigins(end+1,1)=origins(o); %#ok<AGROW>
         end
@@ -140,7 +185,57 @@ s.release_cursor = 1;
 s.decision_counter = 0;
 s.scenario_id = simParams.seed;
 s.position_snapshot = positionManagement;
+s.pending_task_ids = [];
+s.schedule_interval_ms = 5;
+if isfield(cfg.control,'schedule_interval_ms')
+    s.schedule_interval_ms = double(cfg.control.schedule_interval_ms);
+end
+s.next_schedule_ms = inf;
+s.use_joint_scheduler = ismember(s.policy, ...
+    ["joint_schedule","joint_myopic","schedule_myopic","joint_local","risk_myopic_p6","risk_myopic_p7","masked_ddqn_p8","learn_assist_p8","traj_constrained_p8"]);
+s.epoch_rows = cell(0,8);
+s.assignment_feature_rows = cell(0,21);
+s.reward_rows = cell(0,5);
+s.safety_cost_rows = cell(0,6);
+s.offload_count = 0;
+s.governor_spent = 0;
+s.tentative_offloads = 0;
+% R3 workflow overlay: attach hybrid engine (Mode-2 radio + WorkflowCpuQueue).
+if startsWith(s.policy,"workflow_")
+    addpath(genpath(fullfile(fileparts(fileparts(mfilename('fullpath'))),'workflow_v2')));
+    s=spv2xWorkflowBridge('attach',s,simParams,positionManagement);
+end
 stationManagement.spv2x = s;
 timeManagement.spv2xInitialized = true;
+end
+
+function model=loadP7Json(safetyRoot,cfg,fieldName,defaultRel)
+model=struct();
+rel=defaultRel;
+if isfield(cfg,'control') && isfield(cfg.control,fieldName) && strlength(string(cfg.control.(fieldName)))>0
+    rel=string(cfg.control.(fieldName));
+end
+path=rel;
+if ~isfile(path), path=fullfile(safetyRoot,rel); end
+if isfile(path), model=jsondecode(fileread(path)); end
+end
+
+function rate=roleCpuRate(compute,seed,vehicle,isOrigin)
+if isOrigin && isfield(compute,'origin_cpu_ghz')
+    range=double(compute.origin_cpu_ghz(:))*1e9;
+elseif ~isOrigin && isfield(compute,'helper_cpu_ghz')
+    range=double(compute.helper_cpu_ghz(:))*1e9;
+else
+    range=[double(compute.cpu_cycles_per_s_min);double(compute.cpu_cycles_per_s_max)];
+end
+assert(isscalar(range) || numel(range)==2,'SafetyOffloading:CpuRole', ...
+    'CPU role configuration must contain one fixed value or a [min,max] range');
+if isscalar(range)
+    rate=range(1);
+else
+    assert(range(2)>=range(1),'SafetyOffloading:CpuRole','CPU role range must be ordered');
+    u=stableUniform(seed,"wilab-cpu-role",vehicle,isOrigin);
+    rate=range(1)+u*(range(2)-range(1));
+end
 end
 

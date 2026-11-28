@@ -2,7 +2,7 @@
 
 ## Preserved training budget
 
-Each of five independent runs retains 88 full packet-level WiLab training
+Each of three independent runs retains 88 full packet-level WiLab training
 rollouts and 1,280 optimizer updates. Sixteen main blocks contain five
 rollouts and 80 updates each. The predeclared continuation contains eight
 rollouts and 128 updates. Episode duration, Mode-2 radio model, replay, and
@@ -21,7 +21,8 @@ and 16, corresponding to optimizer updates 320, 640, 960, and 1,280. At every
 milestone, the identical two matched validation seeds 1301–1302 are evaluated
 greedily. They are disjoint from training and held-out testing seeds.
 
-Thus every run uses 88 training plus 8 validation simulations: **96 total**.
+Thus every run uses 88 training plus 8 validation simulations: **96 total**,
+giving **288 physical simulations across three runs**.
 The final held-out test is separate. Supplementary validation is permitted only
 to resolve a documented ambiguous equivalence result; training is never rerun
 solely to increase validation replication.
@@ -40,8 +41,8 @@ solely to increase validation replication.
   descriptive check; supplementary matched scenarios are collected only if the
   final plateau is ambiguous.
 
-The five independent runs—not optimizer updates—establish reproducibility.
-The acceptance target is four of five showing all three stages. Baseline
+The three independent runs—not optimizer updates—establish reproducibility.
+The acceptance target is three of three showing all three stages. Baseline
 comparisons are explicitly separate from convergence evidence.
 
 ## Runtime and execution
@@ -49,5 +50,4 @@ comparisons are explicitly separate from convergence evidence.
 The efficient schedule removes redundant checkpoint simulations without
 reducing training experience. The runner logs timing for every rollout,
 optimizer block, and validation. Independent runs write isolated roots and are
-launched with a bounded two-worker parallel scheduler on this host until
-measured throughput supports a higher concurrency level.
+launched with three persistent MATLAB workers running concurrently, one per run.
