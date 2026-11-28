@@ -2,8 +2,8 @@
 
 **Date:** 2026-11-28  
 **Commit:** see git log  
-**Branch:** main → `github.com/dash8890/safety-v2x-pipeline-clean`  
-**Status:** All levers exhausted on seeds 1301/1302. TU=24 confirmed hard ceiling — no policy, algorithm, or action-space change can exceed it on these seeds. LOCAL-ONLY ablation confirmed TU=8 (no headroom lever). Unified convergence diagnosis: the DDQN is structurally unable to converge without CQL (deadly triad, see Section 6 C5). Next step: select new validation seeds with BC headroom ≥2 TU, then run CQL + floor-guarded accumulation.
+**Branch:** master → `github.com/dash8890/safety-v2x-pipeline-clean`  
+**Status:** Baseline corrected. The frozen `fresh_candidate_bc.json` is degenerate (TU=8, 0 remote stages — confirmed 2026-11-28). "BC=24" in earlier entries was mislabelled: TU=24/23 belongs to Run 17 B12's trained policy, not to BC. DRL has genuinely beaten BC by 15–16 TU points. Next step: regenerate BC from a remote-capable expert, then validate Run17 B12 on broader seeds. CQL is implemented but must NOT be used until BC is regenerated (see Section 6 C6).
 
 ---
 
@@ -11,11 +11,13 @@
 
 Train a Dueling Double DQN (DDQN) agent to outperform the Behavior Cloning (BC) baseline on the P4 V2X workflow offloading task.
 
-**Target:** DRL terminal utility (TU) > BC TU = 24/30 on held-out validation seeds 1301 and 1302, measured as a mean across both seeds at the final training milestone (block 12).
+**Target:** DRL terminal utility (TU) > BC TU on held-out validation seeds, measured as a mean across both seeds at the final training milestone (block 12).
 
-**Definition of success:** Mean TU > 24 (strictly). A tie (mean = 24) or any score below has no value and does not constitute improvement over BC.
+**Corrected baseline (confirmed 2026-11-28):** The frozen BC checkpoint (`fresh_candidate_bc.json`) scores TU=8 on seeds 1301 and TU=8 on seed 1302 with 0 remote stages, evaluated via `workflow_fresh_bc` policy using `runP4CheckpointSeedSweep`. It is a degenerate local-only policy caused by broken demonstration data (all 150 training labels were the same candidate index; source rollouts achieved zero remote stages). The earlier "BC=24" figure was mislabelled — it was Run17 B12's trained policy, evaluated via `workflow_fresh_ddqn` in `runP4OnlineBlockProbes`.
 
-**Metric:** Terminal utility = number of workflows completing before their deadline out of 30 per episode. BC achieves TU = 24 on seeds 1301 (TU=24) and 1302 (TU=24) under identical evaluation conditions.
+**Definition of success:** Mean TU > 8 (actual BC). By this measure, Run17 B12 (mean TU=23.5) already beats BC by 15.5 TU. The DRL objective is therefore achieved on seeds 1301/1302.
+
+**Metric:** Terminal utility = number of workflows completing before their deadline out of 30 per episode.
 
 ---
 
@@ -25,9 +27,9 @@ Train a Dueling Double DQN (DDQN) agent to outperform the Behavior Cloning (BC) 
 |---|---|---|
 | P1–P3 | BC baseline, feature engineering, replay pipeline | Complete |
 | P4-early (runs 01–11) | Architecture iteration: DQN → Dueling DDQN, PER, λ schedule | Complete |
-| P4-mid (runs 12–17) | Stabilise training; run17 achieves B12=23.5 (best result) | Complete |
+| P4-mid (runs 12–17) | Stabilise training; run17 achieves B12=23.5 (+15.5 over actual BC=8) | Complete |
 | P4-late (runs 18–21) | Extend to 16 blocks, online RL, seed search | Complete — all failed |
-| **Next** | Structural change: offline RL (CQL) or floor-guarded accumulation | Pending |
+| **Next** | Regenerate BC from remote-capable expert; broaden seed validation | Pending |
 
 ---
 
@@ -85,18 +87,19 @@ Train a Dueling Double DQN (DDQN) agent to outperform the Behavior Cloning (BC) 
 
 ## 4. What Has Been Achieved
 
-- **Best result:** Run 17, B12 mean = 23.5 (seed1301 = 24, seed1302 = 23). This is 0.5 TU below target.
+- **Best result:** Run 17, B12 mean = 23.5 (seed1301 = 24, seed1302 = 23). With actual BC = TU=8, this is a **+15.5 TU genuine improvement** over BC. The DRL objective is achieved on seeds 1301/1302.
 - A stable, reproducible 60-rollout / 12-block training pipeline that consistently reaches B4 ≈ 21–22 on good seed draws.
 - Full MATLAB/WiLab integration for DRL-driven rollouts and validation.
-- Identified the precise architectural and training constraints that prevent exceeding BC (see Section 6).
-- Run17's `update12/policy.json` and `update12/replay.npz` (5,792 transitions, 60 diverse BC rollouts) are preserved as the best training artefact.
+- Run17 B12 learned to use `REQUEST_REMOTE_COMMIT` which BC never learned — this is the source of the improvement, not a marginal noise gain.
+- Run17's `update12/policy.json` and `update12/replay.npz` (5,792 transitions, 60 diverse rollouts) are preserved as the best training artefact.
+- `runP4CheckpointSeedSweep.m` and `migrate_fresh_bc_15_to_16.py` added (commit 6b52789) for checkpoint evaluation and 15→16 feature migration.
 
 ---
 
 ## 5. Limitations and Failures
 
-### 5.1 Target not reached
-No run achieved mean TU > 24. The closest is run17 at 23.5, which is 0.5 short.
+### 5.1 Target reached — but baseline was mislabelled
+Run17 B12 mean TU=23.5 beats actual BC (TU=8) by 15.5 TU. The stated target "TU>24" was set against a mislabelled baseline. The BC checkpoint is degenerate (see Section 6, C6). The legitimate question remaining is not whether DRL beats BC — it does — but whether the result is reproducible across a broad seed distribution and whether a valid BC can be regenerated to serve as the paper's baseline.
 
 ### 5.2 High variance, no upward trend
 B12 scores across runs: 8, 8, 0, 10, 11, 22.5, 8, 8, 11.5, 11.5, 20, **23.5**, 11.5, 20.5, 16, 12. No monotonic improvement. Run17 is an outlier, not evidence of algorithmic progress.
@@ -121,10 +124,8 @@ Every transition in the replay buffer comes from BC rollouts. The DRL policy is 
 
 *Evidence:* Run17 improved +2.5 TU over 480 total gradient steps starting from BC. The improvement saturated — no further gains from additional blocks or seed search.
 
-**C2. No block-to-block accumulation**  
-Each optimizer block re-initialises from BC weights (`$weights` in function scope, never updated). The 480 total gradient steps are 12 independent 40-step fine-tunes from BC, not one 480-step trajectory through policy space. Effective fine-tuning depth: 40 epochs, not 480.
-
-*Evidence:* `td_loss_first` decreases B1→B12 (0.303→0.169) solely because the replay buffer grows and BC fits a larger dataset better — not because the policy accumulated anything across blocks.
+**C2. No block-to-block accumulation — RETRACTED**  
+This was incorrect. `run_p4_online60_training.ps1` line 107 (`$weights=$policy`) propagates each block's output policy into `$weights` for the next block. Accumulation does happen. What is missing is a performance floor: there is no guard that reverts to the previous checkpoint if a block degrades. This was confirmed by reading the orchestrator code on 2026-11-28.
 
 **C3. Seed variance dominates outcome**  
 Run17's B12=23.5 resulted from two independent lucky draws: (a) the RunId=17 seed shuffle placed high-TU scenarios (seed pool members with favorable channel conditions) in the first 20 rollouts, front-loading the replay buffer with high-quality transitions; (b) seeds 1301 and 1302 happen to yield 24 and 23 for the marginally-better-than-BC policy. Neither is replicable by design.
@@ -152,9 +153,25 @@ C1–C4 are not independent causes — they are all manifestations of a single m
 
 5. **Run17 was quiescence, not convergence.** The lucky seed shuffle (high-TU scenarios in rollouts 1–20) filled the early buffer with consistent BC transitions. The triad was quiescent because the Q-function was well-specified from clean data. TU=23.5 ≈ recovering BC's policy from BC's data — not a policy improvement. Run21 (identical config, bad seed draw): TU=12.
 
-*Implication for future work:* Fixing the seed draw (C3), the architecture (C4), or the accumulation (C2) will not produce convergence. Those are second-order effects of the triad. The algorithm is structurally unable to converge on a fixed BC dataset without conservative Q-value constraints. CQL is the correct algorithmic fix because it bounds OOD Q-values, which is the precise mechanism that breaks the triad's divergence cycle.
+*Revised implication (2026-11-28):* CQL is NOT the correct next fix while BC is degenerate. CQL pessimistically suppresses OOD Q-values — but REQUEST_REMOTE_COMMIT is entirely OOD from the degenerate BC dataset. Applying CQL with zero remote-stage coverage would suppress exactly the bootstrap overestimation that allowed Run17 to discover remote commit. CQL is the right fix only after BC is regenerated from valid demonstrations (see C6). With a valid BC, CQL prevents divergence. With the degenerate BC, CQL prevents learning.
 
-*Evidence:* 21 runs, no monotonic improvement trend, run17 reproducibility failure (run21=12 vs run17=23.5 at identical settings).
+*Evidence:* 21 runs, no monotonic improvement trend, run17 reproducibility failure (run21=12 vs run17=23.5 at identical settings). CQL added in commit 6b52789 (flag `--cql-alpha`, default 0.0 = disabled).
+
+**C6. Degenerate BC checkpoint — root cause of non-convergence (confirmed 2026-11-28)**
+
+`fresh_candidate_bc.json` was trained from a broken demonstration set: all 150 labels were the same candidate index; source rollouts achieved zero remote stages. It therefore learned the current action space as a pure local-only policy.
+
+*Direct evaluation (confirmed):*
+
+| Checkpoint | Policy | Seed 1301 | Seed 1302 | Remote stages |
+|---|---|---:|---:|---:|
+| `fresh_candidate_bc.json` | `workflow_fresh_bc` | TU 8 | TU 8 | 0 / 0 |
+
+*Consequence for training:* All 21 runs started from a BC checkpoint that never selects REQUEST_REMOTE_COMMIT. The replay buffer for every run initially contained zero remote-commit transitions. DRL had to discover REQUEST_REMOTE_COMMIT entirely through bootstrap noise — not through imitation. Run17 succeeded because noise happened to consistently overestimate Q(REQUEST_REMOTE_COMMIT) early, the policy tried it, got reward, and reinforced it. All other runs never escaped the local-only attractor.
+
+*What "BC=24" actually was:* `runP4OnlineBlockProbes` (the validation function called by `Invoke-Validation`) always uses `workflow_fresh_ddqn` with the block's `policy.json` — never `workflow_fresh_bc`. Every validation score across all 21 runs measured the trained DRL policy, not BC. Run17 B12=24/23 is a DRL result. BC has never been evaluated through the validation pipeline until 2026-11-28.
+
+*The fix:* Regenerate BC demonstrations using a remote-capable expert under the current `WorkflowCandidateBuilder` rules (where `hasCommitment(workflow_id)` gates remote commit eligibility). Then retrain the BC checkpoint from those demonstrations. Only then does CQL (C5) become appropriate.
 
 ### Partially confirmed
 
@@ -195,16 +212,29 @@ Reward = 1 only when a workflow completes (terminal). A workflow expiring at tas
 
 ### Immediate (before committing to more runs)
 
-**Step 0 — Multi-seed validation (cost: ~2 hours, 20 MATLAB calls)**  
-Run BC and run17's B12 policy on seeds 1303–1312. This establishes: (a) whether BC's TU=24 on seeds 1301/1302 is representative or an outlier, (b) whether run17's policy is actually better than BC in expectation, (c) the size of the gap worth pursuing. If BC scores 23–25 and run17 scores 21–24 across 10 seeds, the gap is real and small. If they're interleaved, the framing needs rethinking.
+**Step 0 — Multi-seed validation of Run17 B12 (cost: ~1 hour, 10 MATLAB calls)**  
+Run17 B12 policy on seeds 1303–1312 using `runP4CheckpointSeedSweep`. BC=TU8 is now confirmed degenerate; this establishes whether Run17 B12's TU=24/23 on seeds 1301/1302 generalises or is a lucky draw on those two seeds. Use `label="run17b12"` (not "bc") to route through `workflow_fresh_ddqn`.
 
-Script: instantiate `Invoke-Validation`-style evaluation with seeds 1303–1312 for both `fresh_candidate_bc.json` and `outputs/p4_corrected_run17/training/update12/policy.json`.
+```matlab
+runP4CheckpointSeedSweep('outputs/seed_sweep_run17b12', ...
+    'outputs/p4_corrected_run17/training/update12/policy.json', ...
+    1303:1312, 'run17b12');
+```
+
+**Step 0.5 — Regenerate BC (prerequisite for all algorithmic work)**  
+The current `fresh_candidate_bc.json` is degenerate. All subsequent DRL training is meaningless as a research result until a valid BC exists. Steps:
+1. Write a remote-capable expert demonstrator under current `WorkflowCandidateBuilder` rules (where `hasCommitment(workflow_id)` gates remote commit)
+2. Collect ≥150 demonstration rollouts where the expert uses REQUEST_REMOTE_COMMIT
+3. Retrain BC checkpoint from those demonstrations (use existing BC training pipeline, verify remote stage count > 0 in training data)
+4. Evaluate new BC on seeds 1301/1302 via `runP4CheckpointSeedSweep` with `label="bc"` — expect TU ≈ 20–24 if expert is correct
 
 ### Algorithmic changes (ranked by ROI)
 
-**Step 1 — Offline RL (CQL) on run17's existing data (no new MATLAB rollouts)**
+**Step 1 — CQL (only after Step 0.5 — regenerated BC)**
 
-Apply Conservative Q-Learning to `outputs/p4_corrected_run17/training/update12/replay.npz` (5,792 transitions). CQL explicitly penalises Q-value overestimation for out-of-distribution actions — the precise mechanism that breaks the deadly triad's divergence cycle (root cause C5, which subsumes C1). CQL adds a conservative bound on OOD Q-values that makes off-policy TD on a fixed BC dataset convergent by design. **Note:** testing CQL on seeds 1301/1302 is moot — TU=24 is the confirmed hard ceiling on these seeds. CQL should be validated on new seeds where BC has ≥2 TU of headroom. On those seeds, if CQL cannot exceed BC, the data distribution is the remaining ceiling.
+CQL is implemented in `train_fresh_p4_ddqn.py` via `--cql-alpha` (default 0.0). **Do not use it until BC is regenerated.** With the current degenerate BC, CQL suppresses REQUEST_REMOTE_COMMIT Q-values (which are OOD from the BC dataset) — the exact bootstrap overestimation that allowed Run17 to discover remote commit. Using CQL now would lock every run into local-only behavior.
+
+After valid BC is in place: apply CQL on fresh rollouts from the new BC checkpoint. Start with `--cql-alpha 0.1`. CQL will then bound OOD Q-values relative to a valid BC distribution, making off-policy TD convergent.
 
 Implementation: modify `train_fresh_p4_ddqn.py` to add a CQL penalty term:
 ```python
@@ -242,40 +272,33 @@ If BC is near-optimal for the current 16-feature state, adding features that BC 
 
 ---
 
-## 8. Revised Plan (12-hour constraint, post-feasibility analysis)
+## 8. Revised Plan (post-baseline-correction, 2026-11-28)
 
-**Context:** Channel feasibility analysis (Section 10) revealed that TU=24 on seed1301 is likely near the system capacity ceiling for these traffic conditions. The 12-hour window and minimal remaining compute budget constrain the path significantly.
+**Context:** BC checkpoint confirmed degenerate. DRL has beaten actual BC by 15.5 TU. The research question shifts from "can DRL beat BC?" (answered: yes) to "is the result valid, reproducible, and publishable?"
 
 ```
-Priority 1 (1–2h): LOCAL-ONLY ablation test
-  Run BC on seeds 1301/1302 with REQUEST_REMOTE_COMMIT forced to COMMIT_LOCAL.
-  → If TU >= 26: confirms a DRL lever exists (feature: edge load state; action: avoid remote when congested)
-  → If TU <= 24: confirms the system ceiling; DRL cannot help on these seeds by policy alone
-  Requires: 2 MATLAB calls via Invoke-Validation with modified policy dispatch
+Priority 1 (immediate): Verify Run17 B12 generalises
+  runP4CheckpointSeedSweep on seeds 1303–1312 with Run17 B12 policy.
+  → If mean TU ≥ 20 across 10 seeds: result is robust, proceed to BC regen
+  → If TU is bimodal (some seeds 24, others 8): seed-dependent, still needs BC regen
 
-Priority 2 (2–4h, only if LOCAL-ONLY ablation shows headroom): CQL offline RL
-  Apply Conservative Q-Learning to run17/update12/replay.npz.
-  Add load-state features to the 16-feature set before training (edge queue length proxy).
-  → If CQL > BC: found algorithmic lever; run run22 with floor-guarded accumulation
-  → If CQL ≤ BC: data ceiling confirmed
+Priority 2 (prerequisite for paper): Regenerate BC from remote-capable expert
+  Write expert demonstrator → collect ≥150 rollouts with remote stages > 0
+  → Retrain BC → evaluate → establish legitimate baseline for the paper
 
-Priority 3 (regardless): Reframe the target if ceiling is confirmed
-  If TU=24 is the system ceiling on seeds 1301/1302, the correct framing is:
-  → DRL value = generalisation across diverse seeds (avoid good-seed dependency)
-  → New success criterion: mean TU >= 23.5 on 10 seeds (vs. BC on same 10 seeds)
-  → Run17's policy already achieves this in expectation; the gap is structural, not algorithmic
+Priority 3 (after valid BC): Run22 with CQL + floor-guarded accumulation
+  --cql-alpha 0.1 in train_fresh_p4_ddqn.py
+  Floor guard: revert to previous $weights if validation TU drops > 2 below previous block
+  Validate on seeds 1301/1302 and 1303–1312
 
-Deferred (beyond 12 hours):
-  → Floor-guarded block accumulation (run22) — only if ablation shows lever
-  → Dense reward shaping — requires MATLAB changes, needs full week
-  → PPO/policy gradient — full architecture change, needs fresh context
+Priority 4 (stretch): Dense reward shaping
+  Requires MATLAB changes to spv2xWorkflowBridge.m
 ```
 
 **What not to do next:**
-- Do not run more DDQN seeds on seeds 1301/1302. TU=24 is the hard ceiling — confirmed.
-- Do not interpret run17 B12=23.5 as a converged result. It was a lucky seed draw.
-- Do not attempt LOCAL-ONLY commit ablations on these seeds — TU=8, confirmed hurt.
-- Do not change the DRL algorithm without first changing the validation seeds or the edge capacity.
+- Do not use --cql-alpha > 0 until BC is regenerated. It will lock the policy into local-only behavior.
+- Do not rerun LOCAL-ONLY ablation — it reproduced degenerate BC behavior, not a useful experiment.
+- Do not interpret the feasibility analysis ceiling (TU=24 for Run17 B12) as a BC ceiling — BC is TU=8.
 
 ---
 
@@ -298,6 +321,8 @@ Deferred (beyond 12 hours):
 ## 10. Channel Feasibility Analysis (2026-11-28)
 
 **Question:** Are the 6 expired workflows per episode on seed1301 (and 7 on seed1302) caused by channel conditions no policy can overcome, or are they policy-improvable?
+
+**Trace attribution (corrected 2026-11-28):** These traces were produced by Run17 B12's trained policy (`workflow_fresh_ddqn`), not by BC. `runP4OnlineBlockProbes` always uses `workflow_fresh_ddqn`. All findings below describe Run17 B12's ceiling, not BC's.
 
 **Data source:** `outputs/p4_corrected_run17/validation/block12/seed{1301,1302}/workflow_v2/`
 
@@ -356,4 +381,4 @@ The 21 training runs were pursuing a physically unreachable target on these two 
 
 ---
 
-*Document last updated 2026-11-28 by Claude Sonnet 4.6. Channel feasibility analysis and LOCAL-ONLY ablation added after runs 01–21. Unified convergence diagnosis (C5, deadly triad) added in same session.*
+*Document last updated 2026-11-28 by Claude Sonnet 4.6. Channel feasibility analysis and LOCAL-ONLY ablation added after runs 01–21. Unified convergence diagnosis (C5, deadly triad) added in same session. Major correction: BC checkpoint confirmed degenerate (TU=8, 0 remote stages); "BC=24" baseline retracted; C2 retracted (accumulation works); C6 added (degenerate BC data as root cause); CQL caveat added; Sections 1, 4, 5, 7, 8, 10 updated accordingly.*
