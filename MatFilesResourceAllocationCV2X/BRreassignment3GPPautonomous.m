@@ -19,6 +19,9 @@ Nbeacons = NbeaconsT*NbeaconsF;
 
 % Calculate current T within the NbeaconsT
 currentT = mod(timeManagement.elapsedTime_TTIs-1,NbeaconsT)+1; 
+pairedMode=isfield(stationManagement,'spv2x') && stationManagement.spv2x.enabled;
+pairedSeed=simParams.seed;
+pairedSlot=timeManagement.elapsedTime_TTIs;
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -107,7 +110,7 @@ keepCheck_MAC = activeIDsCV2X( hasFirstTransmissionThisSlot & (stationManagement
 
 updateCounter_MAC =[];
 if simParams.probResKeep>0
-    keepRand = rand(1,length(keepCheck_MAC));
+    keepRand = pairedUniformVector(pairedMode,pairedSeed,"pkeep",pairedSlot,keepCheck_MAC);
     % Update the vehicles which don't perform reselection and update the RC
     updateCounter_MAC = keepCheck_MAC(keepRand < simParams.probResKeep);
 end
@@ -118,8 +121,7 @@ if simParams.FDalgorithm==1
     % Evaluates the individual Pkeep according to FD-alg1
     stationManagement.probResKeep(keepCheck_MAC)=1-stationManagement.FDcounter(keepCheck_MAC)./stationManagement.nSPS(keepCheck_MAC);
 %     stationManagement.probResKeep(keepCheck_MAC(stationManagement.probResKeep(keepCheck_MAC)>0.8))=0.8; % modification: sets pk adaptive to max 0.8
-    keepRand = rand(1,length(keepCheck_MAC));
-    updateCounter_MAC =[];
+    keepRand = pairedUniformVector(pairedMode,pairedSeed,"fd-pkeep",pairedSlot,keepCheck_MAC);
     updateCounter_MAC = keepCheck_MAC(keepRand < stationManagement.probResKeep(keepCheck_MAC)');
 end
 
@@ -140,7 +142,11 @@ scheduledID_MAC = activeIDsCV2X( hasNewPacketThisTbeacon & (stationManagement.re
 % 2. For users with enforced reselection
 % 3. For user that need to update the reselection counter instead of reselecting
 needReselectionCounterRestart = [scheduledID_PHY;scheduledID_MAC;updateCounter_MAC]; % union removed to speed up coding, there might be repetitions but it's faster
-stationManagement.resReselectionCounterCV2X(needReselectionCounterRestart) = (~simParams.dynamicScheduling)*((simParams.minRandValueMode4-1) + randi((simParams.maxRandValueMode4-simParams.minRandValueMode4)+1,1,length(needReselectionCounterRestart)))'++simParams.dynamicScheduling;
+counterSpan=(simParams.maxRandValueMode4-simParams.minRandValueMode4)+1;
+counterDraw=pairedUniformVector(pairedMode,pairedSeed,"reselection-counter",pairedSlot,needReselectionCounterRestart);
+counterValue=simParams.minRandValueMode4+floor(counterDraw*counterSpan);
+stationManagement.resReselectionCounterCV2X(needReselectionCounterRestart) = ...
+    (~simParams.dynamicScheduling)*counterValue(:)+simParams.dynamicScheduling;
 
 
 if simParams.FDalgorithm==1 %adaptive pKeep
@@ -233,20 +239,28 @@ for indexSensingV = 1:Nscheduled
         % candidate. Put the fragment back in the application queue instead
         % of aborting the simulator or forcing an invalid reservation.
         vehicleID=scheduledID(indexSensingV);
+        % App overlays (legacy compute + workflow_v2) may hit empty Mode-2
+        % candidate sets; requeue the fragment instead of aborting the sim.
         if isfield(stationManagement,'spv2x') && ...
-                stationManagement.spv2x.current(vehicleID).valid && ...
-                stationManagement.spv2x.current(vehicleID).kind=="compute"
-            item=stationManagement.spv2x.current(vehicleID);
-            stationManagement.spv2x.pending_tx{vehicleID}= ...
-                [item;stationManagement.spv2x.pending_tx{vehicleID}];
-            stationManagement.spv2x.current(vehicleID)=stationManagement.spv2x.empty_meta;
-            stationManagement.pckBuffer(vehicleID)=0;
-            stationManagement.pckNextAttempt(vehicleID)=1;
-            if isfield(stationManagement,'newDataIndicator')
-                stationManagement.newDataIndicator(vehicleID)=false;
+                stationManagement.spv2x.current(vehicleID).valid
+            knd=string(stationManagement.spv2x.current(vehicleID).kind);
+            if knd=="compute" || knd=="workflow_data" || knd=="workflow_ctrl"
+                item=stationManagement.spv2x.current(vehicleID);
+                curPend=stationManagement.spv2x.pending_tx{vehicleID};
+                if isempty(curPend)
+                    stationManagement.spv2x.pending_tx{vehicleID}=item;
+                else
+                    stationManagement.spv2x.pending_tx{vehicleID}=[item;curPend(:)];
+                end
+                stationManagement.spv2x.current(vehicleID)=stationManagement.spv2x.empty_meta;
+                stationManagement.pckBuffer(vehicleID)=0;
+                stationManagement.pckNextAttempt(vehicleID)=1;
+                if isfield(stationManagement,'newDataIndicator')
+                    stationManagement.newDataIndicator(vehicleID)=false;
+                end
+                timeManagement.timeLastPacket(vehicleID)=timeManagement.timeNow-2*phyParams.TTI;
+                continue
             end
-            timeManagement.timeLastPacket(vehicleID)=timeManagement.timeNow-2*phyParams.TTI;
-            continue
         end
         error('Mbest must be a positive scalar (it is %d)',MBest);
     end
@@ -257,7 +271,16 @@ for indexSensingV = 1:Nscheduled
     % Create random permutation of the column indexes of sensingMatrix in
     % order to avoid the ascending order on the indexes of cells with the
     % same value (sort effect) -> minimize the probability of choosing the same resource
-    rpMatrix = randperm(Nbeacons);
+    if pairedMode
+        keys=zeros(1,Nbeacons);
+        for resourceIndex=1:Nbeacons
+            keys(resourceIndex)=stableUniformNumeric(pairedSeed,201,pairedSlot, ...
+                scheduledID(indexSensingV),resourceIndex);
+        end
+        [~,rpMatrix]=sort(keys);
+    else
+        rpMatrix=randperm(Nbeacons);
+    end
 
     % Build matrix made of random permutations of the column indexes
     % Permute sensing matrix
@@ -301,7 +324,12 @@ for indexSensingV = 1:Nscheduled
     bestBR = bestBR(1:MBest);
 
     % Reassign, selecting a random BR among the bestBR
-    BRindex = randi(MBest);
+    if pairedMode
+        u=stableUniformNumeric(pairedSeed,202,pairedSlot,scheduledID(indexSensingV),1);
+        BRindex=min(MBest,floor(u*MBest)+1);
+    else
+        BRindex=randi(MBest);
+    end
     BR = bestBR(BRindex);
 %     printDebugReallocation(timeManagement.timeNow,scheduledID(indexSensingV),positionManagement.XvehicleReal(stationManagement.activeIDs==scheduledID(indexSensingV)),'reall',BR,outParams);
     
@@ -377,7 +405,12 @@ for indexSensingV = 1:Nscheduled
 
         if length(bestBR)>1
             % Reassign, selecting a random BR among the remaining bestBR
-            BRindex2 = randi(length(bestBR));
+            if pairedMode
+                u=stableUniformNumeric(pairedSeed,202,pairedSlot,scheduledID(indexSensingV),2);
+                BRindex2=min(length(bestBR),floor(u*length(bestBR))+1);
+            else
+                BRindex2=randi(length(bestBR));
+            end
             BR2 = bestBR(BRindex2);  
             % In case, BR and BR2 might need to be switched
             subframe_BR2 = ceil(BR2/NbeaconsF);
@@ -413,5 +446,17 @@ end
 % FD function call
 if simParams.FDalgorithm~= 0 && (simParams.FDalgorithm==5 || simParams.FDalgorithm==6 || simParams.FDalgorithm==7 || simParams.FDalgorithm==8)  % ismember(simParams.FDalgorithm,[5,6,7,8]) replaced for speed
     [stationManagement] = FDtriggeredRetransmission(timeManagement,stationManagement,simParams,phyParams,outParams,appParams);
+end
+end
+
+function values=pairedUniformVector(enabled,seed,tag,slot,vehicleIDs)
+if ~enabled
+    values=rand(1,length(vehicleIDs));
+    return
+end
+values=zeros(1,length(vehicleIDs));
+tagCode=sum(double(char(tag)).*(1:strlength(tag)));
+for i=1:length(vehicleIDs)
+    values(i)=stableUniformNumeric(seed,300+tagCode,slot,vehicleIDs(i),i);
 end
 end

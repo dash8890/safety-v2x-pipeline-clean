@@ -42,8 +42,22 @@ for i = 1:Ntx
         % If received beacon SINR is lower than the threshold
         %if sinrManagement.neighborsSINR(i,indexNeighborsRX(j)) < phyParams.gammaMinLTE
         % randomSINRthreshold = sinrV(randi(length(sinrV)))
-        sinrThreshold=(phyParams.LOS(i,indexNeighborsRX(j))*phyParams.sinrVectorCV2X_LOS(randi(length(phyParams.sinrVectorCV2X_LOS)))+... %if LOS
-            (1-phyParams.LOS(i,indexNeighborsRX(j)))*phyParams.sinrVectorCV2X_NLOS(randi(length(phyParams.sinrVectorCV2X_NLOS))));  %if NLOS
+        if isfield(stationManagement,'spv2x') && stationManagement.spv2x.enabled
+            % Key the exogenous decoding draw by physical link and time.
+            % Optional compute transmissions can then change interference
+            % without shifting later safety-packet random draws.
+            tx=IDvehicleTXLTE(i); attempt=stationManagement.pckTxOccurring(tx);
+            slot=round(timeManagement.timeNow/phyParams.TTI);
+            uLos=stableUniformNumeric(stationManagement.spv2x.scenario_id,101,slot,tx,IDvehicleRX,attempt);
+            uNlos=stableUniformNumeric(stationManagement.spv2x.scenario_id,102,slot,tx,IDvehicleRX,attempt);
+            iLos=min(length(phyParams.sinrVectorCV2X_LOS),floor(uLos*length(phyParams.sinrVectorCV2X_LOS))+1);
+            iNlos=min(length(phyParams.sinrVectorCV2X_NLOS),floor(uNlos*length(phyParams.sinrVectorCV2X_NLOS))+1);
+        else
+            iLos=randi(length(phyParams.sinrVectorCV2X_LOS));
+            iNlos=randi(length(phyParams.sinrVectorCV2X_NLOS));
+        end
+        sinrThreshold=(phyParams.LOS(i,indexNeighborsRX(j))*phyParams.sinrVectorCV2X_LOS(iLos)+... %if LOS
+            (1-phyParams.LOS(i,indexNeighborsRX(j)))*phyParams.sinrVectorCV2X_NLOS(iNlos));  %if NLOS
         
         if sinrManagement.cumulativeSINR(IDvehicleRX,IDvehicleTXLTE(i)) >= sinrThreshold
             % CORRECT            

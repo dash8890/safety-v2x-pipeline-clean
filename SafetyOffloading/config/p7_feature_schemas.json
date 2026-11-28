@@ -1,0 +1,58 @@
+{
+  "completion_prediction": {
+    "keys": ["configuration_id", "seed", "policy", "task_id", "processor_id"],
+    "features": [
+      "cycles", "in_bytes", "out_bytes", "deadline_horizon_ms",
+      "predicted_completion_probability", "predicted_deadline_slack_ms",
+      "predicted_conditional_safety_risk", "processor_cpu_ghz", "is_local",
+      "estimated_input_latency_ms", "estimated_helper_queueing_ms",
+      "estimated_computation_latency_ms", "estimated_result_latency_ms",
+      "relative_distance_m", "feasibility_class"
+    ],
+    "label": "completed_on_time",
+    "notes": "Supervised fit uses is_realized=true only. Counterfactual candidates (is_realized=false) are coverage rows."
+  },
+  "latency_prediction": {
+    "keys": ["configuration_id", "seed", "policy", "task_id", "processor_id"],
+    "labels": [
+      "input_latency_ms", "helper_queue_ms", "compute_ms",
+      "result_latency_ms", "e2e_ms"
+    ],
+    "source": "tasks.csv timing columns for action=offload"
+  },
+  "action_conditional_risk": {
+    "keys": ["configuration_id", "seed", "policy", "decision_id", "task_id", "processor_id"],
+    "features": ["is_local", "chosen", "feasibility_class", "relative_distance_m", "masked"],
+    "label": "action_conditional_risk",
+    "label_kind": "action_level_provisional",
+    "notes": "Provisional per-action conditional risk. Must not be replaced by policy harmful_flip."
+  },
+  "policy_safety_costs": {
+    "keys": ["configuration_id", "seed", "policy", "flow_id", "tx_id", "rx_id"],
+    "features": ["distance_bin"],
+    "labels": [
+      "baseline_success", "policy_success", "harmful_flip",
+      "avoided_failure", "policy_failure", "case_harm_cost", "case_failure_cost"
+    ],
+    "label_kind": "policy_level_paired",
+    "pairing": "Always pair against deadline_local safety_packets.csv for the same cfg/seed."
+  },
+  "sequential_experience": {
+    "preferred_source": "schedule_epochs.csv + rewards.csv",
+    "fallback_source": "decisions.csv chained by time",
+    "fields": [
+      "pending_tasks", "candidate_assignments",
+      "action_type", "task_id", "processor_id",
+      "reward", "action_level_harm_cost",
+      "next_decision_id", "done", "time_ms", "decision_id"
+    ],
+    "notes": "Do not copy policy safety_costs totals onto each decision. Full observations reconstruct from assignment_features at decision_id when present."
+  },
+  "partition_rule": "Independent scenario-level seed partitions. train_seeds vs validation_seeds. Held-out seeds reserved for P10.",
+  "coverage_requirements": {
+    "feasibility_classes": ["II", "III"],
+    "actions": ["local", "offload_success", "offload_fail"],
+    "helpers": "at_least_two_distinct_processor_ids_among_offloads",
+    "counterfactuals": "unchosen assignment_features rows when available"
+  }
+}

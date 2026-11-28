@@ -1,0 +1,177 @@
+{
+  "model": "exposure_weighted_logistic_harm_rate",
+  "target": "harmful-flip probability within the post-decision safety window",
+  "features": [
+    "cbr",
+    "density",
+    "candidate_helpers",
+    "helper_distance_m",
+    "origin_queue_length",
+    "helper_queue_length",
+    "input_bytes",
+    "output_bytes",
+    "cycles",
+    "deadline_ms"
+  ],
+  "means": [
+    0.10123076923076924,
+    50.0,
+    4.0,
+    27.197540762263724,
+    0.046153846153846156,
+    0.015384615384615385,
+    1500.0,
+    300.0,
+    36000000.0,
+    100.0
+  ],
+  "scales": [
+    0.03045559442798378,
+    1e-12,
+    1e-12,
+    13.513968675759621,
+    0.2106298587289874,
+    0.12355304447984486,
+    1e-12,
+    1e-12,
+    1e-12,
+    1e-12
+  ],
+  "weights": [
+    -2.2084894354365243,
+    0.11340405653336698,
+    0.0,
+    0.0,
+    0.015038140384955644,
+    -0.00747685617869753,
+    -0.0283180798342039,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "split": {
+    "calibration_seed": 2,
+    "held_out_test_seed": 3
+  },
+  "calibration_scope": "engineering calibration on one independent scenario seed; not a certified confidence bound",
+  "deployment_upper": "maximum observed harm rate in the matching calibration bin",
+  "metrics": {
+    "train": {
+      "rows": 130,
+      "exposures": 54656,
+      "harm_rate": 0.09940354215456675,
+      "brier": 0.0007127629228890537,
+      "log_loss": 0.3232507865461534
+    },
+    "calibration": {
+      "rows": 131,
+      "exposures": 70604,
+      "harm_rate": 0.1037476630219251,
+      "brier": 0.0004677265977402189,
+      "log_loss": 0.33415172313230507
+    },
+    "test": {
+      "rows": 106,
+      "exposures": 51985,
+      "harm_rate": 0.08675579494084833,
+      "brier": 0.0009753301155418825,
+      "log_loss": 0.2973119953667582
+    }
+  },
+  "calibration_bins": [
+    {
+      "p_min": 0.068477935330607,
+      "p_max": 0.08475746152509016,
+      "count": 26,
+      "predicted_mean": 0.07661357807080546,
+      "harmful_flips": 1328,
+      "exposures": 14404,
+      "empirical_upper": 0.13394495412844,
+      "iid_wilson_diagnostic": 0.09623852629073884
+    },
+    {
+      "p_min": 0.08493056602907599,
+      "p_max": 0.09407362331834528,
+      "count": 26,
+      "predicted_mean": 0.08962400502231144,
+      "harmful_flips": 1451,
+      "exposures": 13844,
+      "empirical_upper": 0.138181818181818,
+      "iid_wilson_diagnostic": 0.10917034320685198
+    },
+    {
+      "p_min": 0.09419677570578186,
+      "p_max": 0.11457999112655746,
+      "count": 26,
+      "predicted_mean": 0.10303991981433637,
+      "harmful_flips": 1578,
+      "exposures": 14322,
+      "empirical_upper": 0.148080438756856,
+      "iid_wilson_diagnostic": 0.11455755477999559
+    },
+    {
+      "p_min": 0.11470038845773231,
+      "p_max": 0.11846676975279916,
+      "count": 26,
+      "predicted_mean": 0.11634321849957552,
+      "harmful_flips": 1421,
+      "exposures": 13447,
+      "empirical_upper": 0.163636363636364,
+      "iid_wilson_diagnostic": 0.11011433893945394
+    },
+    {
+      "p_min": 0.1185543870909862,
+      "p_max": 0.12500617107915757,
+      "count": 27,
+      "predicted_mean": 0.12098455066757678,
+      "harmful_flips": 1547,
+      "exposures": 14587,
+      "empirical_upper": 0.140221402214022,
+      "iid_wilson_diagnostic": 0.1103199977706322
+    }
+  ],
+  "ood_rule": "reject optional offload outside training feature ranges",
+  "feature_ranges": {
+    "cbr": [
+      0.0,
+      0.155
+    ],
+    "density": [
+      50.0,
+      50.0
+    ],
+    "candidate_helpers": [
+      4.0,
+      4.0
+    ],
+    "helper_distance_m": [
+      0.375651519950793,
+      55.9291603747081
+    ],
+    "origin_queue_length": [
+      0.0,
+      1.0
+    ],
+    "helper_queue_length": [
+      0.0,
+      1.0
+    ],
+    "input_bytes": [
+      1500.0,
+      1500.0
+    ],
+    "output_bytes": [
+      300.0,
+      300.0
+    ],
+    "cycles": [
+      36000000.0,
+      36000000.0
+    ],
+    "deadline_ms": [
+      100.0,
+      100.0
+    ]
+  }
+}

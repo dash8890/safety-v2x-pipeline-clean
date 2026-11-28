@@ -1,0 +1,59 @@
+{
+  "project": {"name": "safety_externality_v2v_offloading", "profile": "p7_data_v1"},
+  "note": "P7 prepares calibrated predictors shared by myopic and DRL. Do not train DQN here. After calibration, the calibrated myopic is the P8 reference (not provisional P6).",
+  "sources": {
+    "p4_baseline_root": "outputs/opportunity_sweep_p4",
+    "p6_myopic_root": "outputs/p6_myopic_eval",
+    "primary_configs": [1, 5, 6],
+    "negative_control_configs": [22],
+    "generalization_configs": [31],
+    "train_seeds": [1, 2, 3],
+    "validation_seeds": [4, 5],
+    "heldout_seeds_reserved_for_p10": [6, 7, 8, 9, 10]
+  },
+  "datasets": {
+    "completion_prediction": {
+      "path": "outputs/p7_datasets/completion_prediction.csv",
+      "keys": ["configuration_id", "seed", "task_id", "processor_id"],
+      "features_from": "assignment_features.csv",
+      "label": "completed_on_time",
+      "realized_only_for_supervised_fit": true
+    },
+    "latency_prediction": {
+      "path": "outputs/p7_datasets/latency_prediction.csv",
+      "labels": ["input_latency_ms", "helper_queue_ms", "compute_ms", "result_latency_ms", "e2e_ms"]
+    },
+    "action_conditional_risk": {
+      "path": "outputs/p7_datasets/action_conditional_risk.csv",
+      "label_kind": "action_level_provisional",
+      "labels": ["action_conditional_risk"],
+      "note": "Never filled with policy-level harmful_flip or case harm costs."
+    },
+    "policy_safety_costs": {
+      "path": "outputs/p7_datasets/policy_safety_costs.csv",
+      "requires_paired_baseline": true,
+      "label_kind": "policy_level_paired",
+      "labels": ["harmful_flip", "policy_failure", "case_harm_cost", "case_failure_cost"]
+    },
+    "sequential_experience": {
+      "path": "outputs/p7_datasets/sequential_experience.csv",
+      "fields": ["decision_id", "action_type", "task_id", "processor_id", "reward", "next_decision_id", "done"],
+      "note": "action_level_harm_cost stays NaN; policy costs are not broadcast onto decisions."
+    }
+  },
+  "checks": {
+    "data_partitioning": "Keep training and validation scenario seeds strictly separated. Fit normalization and calibration using training data only.",
+    "action_coverage": "Verify coverage of Classes II and III, different helpers, successful and unsuccessful offloads, and local execution.",
+    "safety_labels": "Distinguish action-level conditional risk labels from policy-level safety costs. Do not assign aggregate policy harm to individual actions."
+  },
+  "partition_rule": "Split by independent scenario seed, never by row shuffle within a seed.",
+  "deficiency_gate": "buildP7Datasets writes deficiencies.json; generate missing experience only if needs_additional_experience is true after P6 completes.",
+  "shared_estimators": {
+    "completion_model": "models/p7_completion_calibrated.json",
+    "latency_model": "models/p7_latency_calibrated.json",
+    "action_risk_model": "models/p7_action_risk_calibrated.json",
+    "policy_risk_model": "models/p7_policy_risk_calibrated.json",
+    "used_by": ["calibrated_myopic_p7", "learning_alternatives_p8"],
+    "p8_reference": "calibrated_myopic_after_p7_not_provisional_p6"
+  }
+}
