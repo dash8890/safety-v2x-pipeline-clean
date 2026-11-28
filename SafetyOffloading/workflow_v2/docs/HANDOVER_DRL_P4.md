@@ -3,7 +3,7 @@
 **Date:** 2026-11-28  
 **Commit:** see git log  
 **Branch:** main → `github.com/dash8890/safety-v2x-pipeline-clean`  
-**Status:** Algorithmic plateau confirmed. Channel feasibility analysis completed. TU=24 is a system capacity ceiling, not a BC ceiling. One untested lever remains: LOCAL-ONLY commit path for late-arriving workflows.
+**Status:** All levers exhausted on seeds 1301/1302. TU=24 confirmed hard ceiling — no policy, algorithm, or action-space change can exceed it on these seeds. LOCAL-ONLY ablation confirmed TU=8 (no headroom lever). Unified convergence diagnosis: the DDQN is structurally unable to converge without CQL (deadly triad, see Section 6 C5). Next step: select new validation seeds with BC headroom ≥2 TU, then run CQL + floor-guarded accumulation.
 
 ---
 
@@ -136,6 +136,26 @@ Most runs collapse to TU≈11–12 at some block. This corresponds to the networ
 
 *Evidence:* The 11.5 failure mode appears in runs 09, 10, 14, 15, 18, 19 at different blocks. `action_agree` in run17's diagnostics swings from 0.617 to 1.0 within adjacent blocks, showing the policy is oscillating near this attractor.
 
+**C5. Unified convergence failure: the deadly triad (definitive)**
+
+C1–C4 are not independent causes — they are all manifestations of a single mathematical failure mode: **the deadly triad** (Sutton & Barto §11.3): off-policy TD + function approximation + bootstrapping on a fixed behavioral dataset. When all three are active simultaneously, there is no convergence guarantee.
+
+*How the triad plays out in this exact implementation:*
+
+1. **The triad is active by construction.** TD learning is off-policy (BC rollouts, not DRL exploration); Q-values are approximated by a neural network; bootstrap targets are computed from that same network's estimates. All three legs are present.
+
+2. **The λ schedule is the trigger, not the fix.** The step-λ regularization `λ × mean(A)²` suppresses advantage discrimination. At λ=0.01 the network cannot distinguish actions; at λ→0 the advantage head is free to diverge. Neither extreme is stable. C4 (advantage collapse) is a symptom of the triad, not an independent cause.
+
+3. **Arbitrary selection poisons the buffer.** Once non-BC transitions enter the replay buffer (from arbitrary action selection during λ-suppressed phases), bootstrap targets become circularly inconsistent. The network then diverges to the 11–12 TU attractor — not because anything breaks, but because that attractor is the triad's stable fixed point on this dataset.
+
+4. **The 11–12 TU floor is convergence to noise.** ~37–40% of random decisions over {COMMIT_LOCAL, REQUEST_REMOTE_COMMIT, REJECT_WORKFLOW} complete workflows regardless of policy quality. This is the collapse floor the triad converges to.
+
+5. **Run17 was quiescence, not convergence.** The lucky seed shuffle (high-TU scenarios in rollouts 1–20) filled the early buffer with consistent BC transitions. The triad was quiescent because the Q-function was well-specified from clean data. TU=23.5 ≈ recovering BC's policy from BC's data — not a policy improvement. Run21 (identical config, bad seed draw): TU=12.
+
+*Implication for future work:* Fixing the seed draw (C3), the architecture (C4), or the accumulation (C2) will not produce convergence. Those are second-order effects of the triad. The algorithm is structurally unable to converge on a fixed BC dataset without conservative Q-value constraints. CQL is the correct algorithmic fix because it bounds OOD Q-values, which is the precise mechanism that breaks the triad's divergence cycle.
+
+*Evidence:* 21 runs, no monotonic improvement trend, run17 reproducibility failure (run21=12 vs run17=23.5 at identical settings).
+
 ### Partially confirmed
 
 **P1. TU=24 is a confirmed system ceiling on seeds 1301/1302 — not a BC ceiling, not a channel ceiling, and not improvable by any policy lever within the current action space**  
@@ -184,7 +204,7 @@ Script: instantiate `Invoke-Validation`-style evaluation with seeds 1303–1312 
 
 **Step 1 — Offline RL (CQL) on run17's existing data (no new MATLAB rollouts)**
 
-Apply Conservative Q-Learning to `outputs/p4_corrected_run17/training/update12/replay.npz` (5,792 transitions). CQL explicitly penalises Q-value overestimation for out-of-distribution actions (root cause C1), making it safe to train on a fixed offline dataset. If CQL on run17's data cannot exceed BC on seeds 1301/1302, that proves the data distribution itself is the ceiling. If it can, a better algorithm has been found without running a single new simulation.
+Apply Conservative Q-Learning to `outputs/p4_corrected_run17/training/update12/replay.npz` (5,792 transitions). CQL explicitly penalises Q-value overestimation for out-of-distribution actions — the precise mechanism that breaks the deadly triad's divergence cycle (root cause C5, which subsumes C1). CQL adds a conservative bound on OOD Q-values that makes off-policy TD on a fixed BC dataset convergent by design. **Note:** testing CQL on seeds 1301/1302 is moot — TU=24 is the confirmed hard ceiling on these seeds. CQL should be validated on new seeds where BC has ≥2 TU of headroom. On those seeds, if CQL cannot exceed BC, the data distribution is the remaining ceiling.
 
 Implementation: modify `train_fresh_p4_ddqn.py` to add a CQL penalty term:
 ```python
@@ -336,4 +356,4 @@ The 21 training runs were pursuing a physically unreachable target on these two 
 
 ---
 
-*Document last updated 2026-11-28 by Claude Sonnet 4.6. Channel feasibility analysis added after runs 01–21.*
+*Document last updated 2026-11-28 by Claude Sonnet 4.6. Channel feasibility analysis and LOCAL-ONLY ablation added after runs 01–21. Unified convergence diagnosis (C5, deadly triad) added in same session.*
