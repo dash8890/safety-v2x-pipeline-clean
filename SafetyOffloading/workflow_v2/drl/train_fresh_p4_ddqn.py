@@ -206,6 +206,8 @@ def main():
                         help="Total optimizer updates in the full training run (1280 for 16 main blocks)")
     parser.add_argument("--bc-weight", type=float, default=0.50,
                         help="BC regularisation weight; 0.0 disables BC loss entirely (keeps BC init)")
+    parser.add_argument("--cql-alpha", type=float, default=0.0,
+                        help="Conservative Q-Learning penalty weight; 0.0 disables CQL")
     args = parser.parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
@@ -223,6 +225,7 @@ def main():
     previous_q = None
     for epoch in range(args.epochs):
         losses = []
+        cql_penalties = []
         abs_td_errors = []
         sampled_rewards = []
         global_update = args.global_update_start + epoch
@@ -248,10 +251,16 @@ def main():
                 lam = 0.01
             else:
                 lam = max(0.0, 0.01 * 2.0 * (1.0 - global_update / args.total_updates))
-            loss = F.smooth_l1_loss(qa, y) + lam * _adv.mean() ** 2
+            # CQL penalises high values for actions outside the dataset action.
+            # This is logsumexp(Q(s,.)) - Q(s,a_data), the sign appropriate for
+            # minimisation.  The inverse sign would encourage OOD overestimation.
+            cql_penalty = torch.logsumexp(q(cur), dim=0) - qa
+            loss = (F.smooth_l1_loss(qa, y) + lam * _adv.mean() ** 2
+                    + args.cql_alpha * cql_penalty)
             opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(q.parameters(), 5); opt.step()
             priorities[idx] = abs(float(td.detach())) + 1e-3
             losses.append(float(loss.detach()))
+            cql_penalties.append(float(cql_penalty.detach()))
             abs_td_errors.append(abs(float(td.detach())))
         # BC retention decays globally over the full training budget.
         retention = max(0.0, args.bc_weight * max(0.0, 1.0 - global_update / args.total_updates))
@@ -269,6 +278,8 @@ def main():
                         "td_error_p95": float(np.quantile(abs_td_errors, .95)),
                         "mean_sampled_reward": float(np.mean(sampled_rewards)),
                         "sum_sampled_reward": float(np.sum(sampled_rewards)),
+                        "mean_cql_penalty": float(np.mean(cql_penalties)),
+                        "cql_alpha": args.cql_alpha,
                         "priority_p50": float(np.median(priorities)),
                         "priority_p95": float(np.quantile(priorities, .95)),
                         "bc_retention": retention,
@@ -282,6 +293,7 @@ def main():
                                   "optimizer_updates": args.epochs,
                                   "global_update_start": args.global_update_start,
                                   "total_updates": args.total_updates,
+                                  "cql_alpha": args.cql_alpha,
                                   "history": history, "transitions": len(data),
                                   "rare_transitions": int(rare.sum())}, indent=2))
 
